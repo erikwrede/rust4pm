@@ -408,7 +408,7 @@ mod tests {
         // Initialize your ObjectCentricPetriNet (ocpn) here
 
         let json_data =
-            fs::read_to_string("./src/oc_align/test_data/bpi17/oc_petri_net.json").unwrap();
+            fs::read_to_string("./src/oc_conformance_checking/test_data/bpi17/oc_petri_net.json").unwrap();
         let net = initialize_ocpn_from_json(&json_data);
 
         // After setting up your OCPN, continue with the test

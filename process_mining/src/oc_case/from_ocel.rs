@@ -1,13 +1,13 @@
+use crate::oc_case::case::{CaseGraph, Edge, EdgeType, Event, Node, Object};
+use crate::oc_case::visualization::export_case_graph_image;
+use graphviz_rust::cmd::Format;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use serde_with::{serde_as, DisplayFromStr};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
-use graphviz_rust::cmd::Format;
-use crate::oc_case::case::{CaseGraph, Edge, EdgeType, Event, Node, Object};
-use crate::oc_case::visualization::export_case_graph_image;
-use serde_with::{serde_as, DisplayFromStr};
 
 #[derive(Debug, Deserialize)]
 struct OcelGlobalLog {
@@ -86,7 +86,8 @@ struct OcelLog {
     objects: HashMap<String, OcelObject>,
 }
 
-
+/// This helper struct can be used to iterate over JSONOCEL files in a directory, 
+/// extracting a `CaseGraph` from each file.
 pub struct CaseGraphIterator {
     entries: fs::ReadDir,
 }
@@ -107,7 +108,9 @@ impl Iterator for CaseGraphIterator {
             match entry {
                 Ok(entry) => {
                     let path = entry.path();
-                    if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("jsonocel") {
+                    if path.is_file()
+                        && path.extension().and_then(|s| s.to_str()) == Some("jsonocel")
+                    {
                         match fs::read_to_string(&path) {
                             Ok(case_file) => {
                                 println!("Processing file: {}", path.display());
@@ -156,7 +159,12 @@ pub fn process_jsonocel_files(source_dir: &str) -> Result<(), Box<dyn Error>> {
             let output_path = visualized_dir.join(output_file_name);
 
             // Visualize the case graph and export the image
-            export_case_graph_image(&query_case, output_path.to_str().unwrap(), Format::Png, Some(0.2))?;
+            export_case_graph_image(
+                &query_case,
+                output_path.to_str().unwrap(),
+                Format::Png,
+                Some(0.2),
+            )?;
         }
     }
 
@@ -168,12 +176,14 @@ pub fn json_to_case_graph(json_str: &str) -> CaseGraph {
     ocel_to_case_graph(ocel)
 }
 
-// Function to parse OCEL JSON
+/// Function to parse official OCEL JSON string into OcelLog struct
 fn parse_ocel_json(json_str: &str) -> Result<OcelLog, serde_json::Error> {
     serde_json::from_str::<OcelLog>(json_str)
 }
 
-// Function to convert OcelLog to CaseGraph
+/// Convert OcelLog to CaseGraph
+/// This function processes the OCEL log and constructs a
+/// CaseGraph containing a totally ordered DF-relation
 fn ocel_to_case_graph(ocel: OcelLog) -> CaseGraph {
     let mut graph = CaseGraph::new();
 
@@ -228,8 +238,7 @@ fn ocel_to_case_graph(ocel: OcelLog) -> CaseGraph {
         }
     }
 
-    // Optionally, create O2O (Object to Object) edges if needed
-    // This depends on your specific application logic
+    // Optionally, create O2O (Object to Object) edges if needed here
 
     graph
 }

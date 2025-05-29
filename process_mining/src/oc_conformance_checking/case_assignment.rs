@@ -13,50 +13,50 @@ trait Mappable {
 #[derive(Debug, Clone)]
 pub enum NodeMapping {
     RealNode(usize, usize), // (c1_node, c2_node)
-    VoidNode(usize, usize), // (c1_node, void_node_id)
+    InsertedNode(usize, usize), // (c1_node, void_node_id)
 }
 
 #[derive(Debug, Clone)]
 pub enum EdgeMapping {
     RealEdge(usize, usize), // (c1_edge, c2_edge)
-    VoidEdge(usize, usize), // (c1_edge, void_edge_id)
+    InsertedEdge(usize, usize), // (c1_edge, void_edge_id)
 }
 
 impl Mappable for NodeMapping {
     fn is_void(&self) -> bool {
-        matches!(self, NodeMapping::VoidNode(_, _))
+        matches!(self, NodeMapping::InsertedNode(_, _))
     }
     fn cost(&self) -> f64 {
         match self {
             NodeMapping::RealNode(_, _) => 0.0,
-            NodeMapping::VoidNode(_, _) => 1.0,
+            NodeMapping::InsertedNode(_, _) => 1.0,
         }
     }
 }
 
 impl Mappable for EdgeMapping {
     fn is_void(&self) -> bool {
-        matches!(self, EdgeMapping::VoidEdge(_, _))
+        matches!(self, EdgeMapping::InsertedEdge(_, _))
     }
     fn cost(&self) -> f64 {
         match self {
             EdgeMapping::RealEdge(_, _) => 0.0,
-            EdgeMapping::VoidEdge(_, _) => 1.0,
+            EdgeMapping::InsertedEdge(_, _) => 1.0,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct CaseAlignment<'a> {
+pub struct CaseAssignment<'a> {
     pub c1: &'a CaseGraph,
     pub c2: &'a CaseGraph,
-    pub void_nodes: HashMap<usize, Node>,          // id -> Node
-    pub void_edges: HashMap<usize, Edge>,          // id -> Edge
+    pub inserted_nodes: HashMap<usize, Node>,          // id -> Node
+    pub inserted_edges: HashMap<usize, Edge>,          // id -> Edge
     pub node_mapping: HashMap<usize, NodeMapping>, // c1_node_id -> mapping
     pub edge_mapping: HashMap<usize, EdgeMapping>, // c1_edge_id -> mapping
 }
 
-impl<'a> CaseAlignment<'a> {
+impl<'a> CaseAssignment<'a> {
     pub fn align_mip(c1: &'a CaseGraph, c2: &'a CaseGraph) -> Self {
         let mut model = Model::new()
             .hide_output()
@@ -331,7 +331,7 @@ impl<'a> CaseAlignment<'a> {
                     // Mapped to void
                     node_mapping.insert(
                         n1,
-                        NodeMapping::VoidNode(n1, n1), // Using n1 as void id
+                        NodeMapping::InsertedNode(n1, n1), // Using n1 as void id
                     );
                 } else {
                     node_mapping.insert(n1, NodeMapping::RealNode(n1, n2));
@@ -347,7 +347,7 @@ impl<'a> CaseAlignment<'a> {
                     // Mapped to void
                     edge_mapping.insert(
                         e1,
-                        EdgeMapping::VoidEdge(e1, e1), // Using e1 as void id
+                        EdgeMapping::InsertedEdge(e1, e1), // Using e1 as void id
                     );
                 } else {
                     edge_mapping.insert(e1, EdgeMapping::RealEdge(e1, e2));
@@ -372,11 +372,11 @@ impl<'a> CaseAlignment<'a> {
             }
         }
 
-        CaseAlignment {
+        CaseAssignment {
             c1,
             c2,
-            void_nodes,
-            void_edges,
+            inserted_nodes: void_nodes,
+            inserted_edges: void_edges,
             node_mapping,
             edge_mapping,
         }
@@ -466,9 +466,9 @@ impl<'a> CaseAlignment<'a> {
         }
         
         // print amount of void edges
-        println!("Void edges: {}", self.void_edges.len());
+        println!("Void edges: {}", self.inserted_edges.len());
         // print amount of void nodes
-        println!("Void nodes: {}", self.void_nodes.len());
+        println!("Void nodes: {}", self.inserted_nodes.len());
     }
 
     /// Prints the mappings of the alignment in a readable format.
@@ -488,7 +488,7 @@ impl<'a> CaseAlignment<'a> {
                     println!("  c1 Node {} -> c2 Node {}", c1_node_id, c2_node_id);
                     mapped_c2_nodes.insert(*c2_node_id);
                 }
-                NodeMapping::VoidNode(_, void_node_id) => {
+                NodeMapping::InsertedNode(_, void_node_id) => {
                     println!(
                         "  c1 Node {} -> VOID Node (Void ID: {})",
                         c1_node_id, void_node_id
@@ -539,7 +539,7 @@ impl<'a> CaseAlignment<'a> {
                     println!("  c1 Edge {} -> c2 Edge {}", c1_edge_id, c2_edge_id);
                     mapped_c2_edges.insert(*c2_edge_id);
                 }
-                EdgeMapping::VoidEdge(_, void_edge_id) => {
+                EdgeMapping::InsertedEdge(_, void_edge_id) => {
                     println!(
                         "  c1 Edge {} -> VOID Edge (Void ID: {})",
                         c1_edge_id, void_edge_id
@@ -581,16 +581,16 @@ impl<'a> CaseAlignment<'a> {
         }
 
         // Optionally, print void nodes and edges details
-        if !self.void_nodes.is_empty() {
+        if !self.inserted_nodes.is_empty() {
             println!("\n--- Void Nodes in Alignment ---");
-            for (void_id, node) in &self.void_nodes {
+            for (void_id, node) in &self.inserted_nodes {
                 println!("  Void Node ID {}: {:?}", void_id, node);
             }
         }
 
-        if !self.void_edges.is_empty() {
+        if !self.inserted_edges.is_empty() {
             println!("\n--- Void Edges in Alignment ---");
-            for (void_id, edge) in &self.void_edges {
+            for (void_id, edge) in &self.inserted_edges {
                 println!("  Void Edge ID {}: {:?}", void_id, edge);
             }
         }
@@ -664,7 +664,7 @@ mod tests {
         c2.add_edge(Edge::new(103, 5, 7, EdgeType::E2O));
 
         // Align using MIP
-        let alignment = CaseAlignment::align_mip(&c1, &c2);
+        let alignment = CaseAssignment::align_mip(&c1, &c2);
         // Print the alignment
         println!("Node Mappings:");
         for (&n1, mapping) in &alignment.node_mapping {
@@ -672,7 +672,7 @@ mod tests {
                 NodeMapping::RealNode(_, n2) => {
                     println!("c1 Node {} -> c2 Node {}", n1, n2);
                 }
-                NodeMapping::VoidNode(_, _) => {
+                NodeMapping::InsertedNode(_, _) => {
                     println!("c1 Node {} -> Void", n1);
                 }
             }
@@ -684,7 +684,7 @@ mod tests {
                 EdgeMapping::RealEdge(_, e2) => {
                     println!("c1 Edge {} -> c2 Edge {}", e1, e2);
                 }
-                EdgeMapping::VoidEdge(_, _) => {
+                EdgeMapping::InsertedEdge(_, _) => {
                     println!("c1 Edge {} -> Void", e1);
                 }
             }

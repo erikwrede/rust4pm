@@ -1,7 +1,7 @@
-use crate::oc_align::align_case::CaseAlignment;
-use crate::oc_align::util::reachability_cache::ReachabilityCache;
-use crate::oc_align::util::shortest_path_cache::ShortestPathCache;
-use crate::oc_align::visualization::case_visual::export_c2_with_alignment_image;
+use crate::oc_conformance_checking::case_assignment::CaseAssignment;
+use crate::oc_conformance_checking::util::reachability_cache::ReachabilityCache;
+use crate::oc_conformance_checking::util::shortest_path_cache::ShortestPathCache;
+use crate::oc_conformance_checking::visualization::case_visual::visualize_assignment;
 use crate::oc_case::case::{CaseGraph, CaseStats, Edge, EdgeType, Event, Node, Object};
 use crate::oc_case::visualization::export_case_graph_image;
 use crate::oc_petri_net::marking::{Binding, Marking, OCToken};
@@ -208,15 +208,21 @@ impl SearchNodeAction {
     }
 }
 
+/// Checker for conformance of a case to a model
 pub struct ModelCaseChecker {
+    /// Maps OC token IDs to object node IDs in the case graph
     token_graph_id_mapping: HashMap<usize, usize>,
+    /// Cache for the reachableFrom heuristic
     reachability_cache: ReachabilityCache,
+    /// Cache for the remainingCost heuristic
     shortest_path_cache: ShortestPathCache,
     model: Arc<ObjectCentricPetriNet>,
     shortest_case: Option<CaseGraph>,
     model_transitions: HashSet<String>,
 }
 impl ModelCaseChecker {
+    
+    /// Initialize the checker with a model.
     pub fn new(model: Arc<ObjectCentricPetriNet>) -> Self {
         ModelCaseChecker {
             token_graph_id_mapping: HashMap::new(),
@@ -228,6 +234,8 @@ impl ModelCaseChecker {
         }
     }
 
+    /// Initializes the checker with an initial solution that can be used to calculate the initial upper bound.
+    /// Use this only if the shortest case is known beforehand and if it is a valid solution for all possible other cases.
     pub fn new_with_shortest_case(
         model: Arc<ObjectCentricPetriNet>,
         shortest_case: CaseGraph,
@@ -338,7 +346,7 @@ impl ModelCaseChecker {
 
         if let Some(shortest_case) = &self.shortest_case {
             println!("Calculating initial upper bound");
-            let alignment = CaseAlignment::align_mip(query_case, shortest_case);
+            let alignment = CaseAssignment::align_mip(query_case, shortest_case);
             global_upper_bound = alignment.total_cost().unwrap_or(f64::INFINITY);
             println!("Initial upper bound: {}", global_upper_bound);
 
@@ -469,7 +477,7 @@ impl ModelCaseChecker {
                 // save an intermediate result as an image in ./intermediates
                 let intermediate_graph = current_node.partial_case.clone();
                 let intermediate_alignment =
-                    CaseAlignment::align_mip(query_case, &intermediate_graph);
+                    CaseAssignment::align_mip(query_case, &intermediate_graph);
                 println!(
                     "Intermediate alignment cost: {}",
                     intermediate_alignment.total_cost().unwrap_or(f64::INFINITY)
@@ -526,7 +534,7 @@ impl ModelCaseChecker {
                 }
                 // temporarily throw an error here so everything is stopped
                 // now output a lot of info such as a string repr of the current case we found and the cost etc
-                let alignment = CaseAlignment::align_mip(query_case, &current_node.partial_case);
+                let alignment = CaseAssignment::align_mip(query_case, &current_node.partial_case);
                 //println!("Alignment cost: {}", alignment.total_cost().unwrap_or(f64::INFINITY));
                 /*
                 if ((alignment.void_nodes.len() + alignment.void_edges.len()
@@ -1521,8 +1529,8 @@ fn compare_bindings(a: &Arc<Binding>, b: &Arc<Binding>) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::oc_align::visualization::case_visual::export_c2_with_alignment_image;
-    use crate::oc_case::dummy_ocel_1_serialization::{
+    use crate::oc_conformance_checking::visualization::case_visual::visualize_assignment;
+    use crate::oc_case::from_ocel::{
         json_to_case_graph, process_jsonocel_files, CaseGraphIterator,
     };
     use crate::oc_case::serialization::deserialize_case_graph;
@@ -1631,7 +1639,7 @@ mod tests {
     fn large_petri_net() {
         let result = panic::catch_unwind(|| {
             let json_data =
-                fs::read_to_string("./src/oc_align/test_data/bpi17/oc_petri_net.json").unwrap();
+                fs::read_to_string("./src/oc_conformance_checking/test_data/bpi17/oc_petri_net.json").unwrap();
             let ocpn = initialize_ocpn_from_json(&json_data);
 
             // Wrap the petri net in Arc to match branch_and_bound signature
@@ -1642,7 +1650,7 @@ mod tests {
             // load file as string
 
             let shortest_case_json =
-                fs::read_to_string("./src/oc_align/test_data/bpi17/shortest_case_graph.json")
+                fs::read_to_string("./src/oc_conformance_checking/test_data/bpi17/shortest_case_graph.json")
                     .expect("Unable to read file");
             let shortest_case = deserialize_case_graph(shortest_case_json.as_str());
 
@@ -1673,10 +1681,10 @@ mod tests {
                     println!("Solution found for case {:?}", path);
                     // save the alignment result as an image in a directory next to /Users/erikwrede/dev/uni/ma-py/ocgc-py/ocgc/varsbpi
                     let alignment =
-                        CaseAlignment::align_mip(&case_graph, &result_node.partial_case);
+                        CaseAssignment::align_mip(&case_graph, &result_node.partial_case);
                     let cost = alignment.total_cost().unwrap_or(f64::INFINITY);
                     println!("Cost: {}", cost);
-                    export_c2_with_alignment_image(
+                    visualize_assignment(
                         &result_node.partial_case,
                         &alignment,
                         output_path.to_str().unwrap().to_owned()
@@ -1706,7 +1714,7 @@ mod tests {
     fn save_case_stats() {
         let result = panic::catch_unwind(|| {
             let json_data =
-                fs::read_to_string("./src/oc_align/test_data/bpi17/oc_petri_net.json").unwrap();
+                fs::read_to_string("./src/oc_conformance_checking/test_data/bpi17/oc_petri_net.json").unwrap();
             let ocpn = initialize_ocpn_from_json(&json_data);
 
             // Wrap the petri net in Arc to match branch_and_bound signature
@@ -1717,7 +1725,7 @@ mod tests {
             // load file as string
 
             let shortest_case_json =
-                fs::read_to_string("./src/oc_align/test_data/bpi17/shortest_case_graph.json")
+                fs::read_to_string("./src/oc_conformance_checking/test_data/bpi17/shortest_case_graph.json")
                     .expect("Unable to read file");
             let shortest_case = deserialize_case_graph(shortest_case_json.as_str());
 

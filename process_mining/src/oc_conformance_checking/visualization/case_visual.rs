@@ -1,4 +1,4 @@
-use crate::oc_align::align_case::{CaseAlignment, EdgeMapping, NodeMapping};
+use crate::oc_conformance_checking::case_assignment::{CaseAssignment, EdgeMapping, NodeMapping};
 use crate::oc_case::case::Node::{EventNode, ObjectNode};
 use crate::oc_case::case::{
     CaseGraph, Edge as CaseEdge, EdgeType,
@@ -34,9 +34,9 @@ use uuid::Uuid;
 /// # Returns
 ///
 /// * `Result<(), std::io::Error>` - Ok if successful, Err otherwise.
-pub fn export_c2_with_alignment_image<P: AsRef<std::path::Path>>(
+pub fn visualize_assignment<P: AsRef<std::path::Path>>(
     c2: &CaseGraph,
-    alignment: &CaseAlignment,
+    alignment: &CaseAssignment,
     path: P,
     format: Format,
     dpi_factor: Option<f32>,
@@ -65,7 +65,7 @@ pub fn export_c2_with_alignment_image<P: AsRef<std::path::Path>>(
 /// * `Graph` - The DOT graph structure.
 pub fn export_c2_with_alignment_to_dot_graph(
     c2: &CaseGraph,
-    alignment: &CaseAlignment,
+    alignment: &CaseAssignment,
     dpi_factor: Option<f32>,
 ) -> Graph {
     // Step 1: Identify mapped c2 node IDs
@@ -142,7 +142,7 @@ pub fn export_c2_with_alignment_to_dot_graph(
     }
 
     // Step 5: Add void nodes (in blue) if they exist
-    for (&void_id, void_node) in &alignment.void_nodes {
+    for (&void_id, void_node) in &alignment.inserted_nodes {
         let label = match void_node {
             EventNode(event) => format!("Void Event: {}", event.event_type),
             ObjectNode(object) => format!("Void Object: {}", object.object_type),
@@ -166,7 +166,7 @@ pub fn export_c2_with_alignment_to_dot_graph(
     }
 
     // Step 6: Add void edges (in blue) if they exist
-    for (&void_edge_id, void_edge) in &alignment.void_edges {
+    for (&void_edge_id, void_edge) in &alignment.inserted_edges {
         let edge_label = match void_edge.edge_type {
             EdgeType::DF => "DF",
             EdgeType::O2O => "O2O",
@@ -178,12 +178,12 @@ pub fn export_c2_with_alignment_to_dot_graph(
         // 
         // get edge from and to node names in graph c2
         let void_edge_from = match alignment.node_mapping.get(&void_edge.from).unwrap() {
-            NodeMapping::VoidNode(_, void_node_id) => format!("void_{}", void_node_id),
+            NodeMapping::InsertedNode(_, void_node_id) => format!("void_{}", void_node_id),
             NodeMapping::RealNode(_, c2_id) => format!("{}", c2.nodes.get(c2_id).unwrap().id()),
         };
         
         let void_edge_to = match alignment.node_mapping.get(&void_edge.to).unwrap() {
-            NodeMapping::VoidNode(_, void_node_id) => format!("void_{}", void_node_id),
+            NodeMapping::InsertedNode(_, void_node_id) => format!("void_{}", void_node_id),
             NodeMapping::RealNode(_, c2_id) => format!("{}", c2.nodes.get(c2_id).unwrap().id()),
         };
         
@@ -281,12 +281,12 @@ mod tests {
         A.add_edge(edge5.clone());
 
         // Perform alignment
-        let alignment = CaseAlignment::align_mip(&A, &B);
+        let alignment = CaseAssignment::align_mip(&A, &B);
         println!("alignment cost: {:?}", alignment.total_cost().unwrap());
 
         // Export visualization
         // This will create "c2_with_alignment.png" in the current directory
-        export_c2_with_alignment_image(
+        visualize_assignment(
             &B,
             &alignment,
             "c2_with_alignment.png",

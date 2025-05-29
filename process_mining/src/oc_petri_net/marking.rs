@@ -1,4 +1,4 @@
-use crate::oc_align::util::reachability_cache::ReachabilityCache;
+use crate::oc_conformance_checking::util::reachability_cache::ReachabilityCache;
 use crate::oc_petri_net::oc_petri_net::{ObjectCentricPetriNet, Transition};
 use crate::oc_petri_net::util::intersect_hashbag::intersect_hashbags;
 use hashbag::HashBag;
@@ -11,6 +11,14 @@ use crate::type_storage::ObjectType;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+
+/// An OCToken represents an object in a Petri net marking.
+/// Tokens have a unique ID which is generated upon creation.
+/// If tokens are used in a firing, the ID remains the same.
+/// 
+/// If you need to associate tokens with actual objects, 
+/// store the object ID mapping in a separate structure for maximum performance.
+/// 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct OCToken {
     pub id: usize,
@@ -25,6 +33,7 @@ impl OCToken {
     }
 }
 
+/// Marking represents the current state of a Petri net.
 #[derive(Debug, Clone)]
 pub struct Marking {
     petri_net: Arc<ObjectCentricPetriNet>,

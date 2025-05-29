@@ -49,14 +49,14 @@ impl Node {
             Node::ObjectNode(object) => object.object_type.0,
         }
     }
-    
+
     pub fn is_object(&self) -> bool {
         match self {
             Node::ObjectNode(_) => true,
             _ => false,
         }
     }
-    
+
     pub fn is_event(&self) -> bool {
         match self {
             Node::EventNode(_) => true,
@@ -79,15 +79,18 @@ impl Hash for Node {
     }
 }
 
-// Define the EdgeType enum
+/// This enum represents the type of edge in the case graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EdgeType {
-    DF,  // Event to Event
-    O2O, // Object to Object
-    E2O, // Event to Object
+    /// Event to Event
+    DF,
+    /// Object to Object
+    O2O,
+    /// Event to Object
+    E2O,
 }
 
-// Define the Edge struct with additional attributes
+/// Edge struct representing a connection between two nodes in the graph
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Edge {
     pub id: usize,
@@ -112,6 +115,7 @@ impl Edge {
     }
 }
 
+/// Struct to hold statistics about a case graph
 #[derive(Debug, Clone)]
 pub struct CaseStats {
     pub query_event_counts: HashMap<EventType, usize>,
@@ -122,22 +126,24 @@ pub struct CaseStats {
 
 impl CaseStats {
     pub fn pretty_print_stats(&self) {
-        // println!("Event counts:");
-        // for (event_type, count) in &self.query_event_counts {
-        //     println!("{}: {}", event_type, count);
-        // }
-        // println!("Object counts:");
-        // for (object_type, count) in &self.query_object_counts {
-        //     println!("{}: {}", object_type, count);
-        // }
-        // println!("Edge counts:");
-        // for (edge_type, count) in &self.query_edge_counts {
-        //     println!("{:?}: {}", edge_type, count);
-        // }
+        println!("Event counts:");
+        for (event_type, count) in &self.query_event_counts {
+            println!("{}: {}", event_type, count);
+        }
+        println!("Object counts:");
+        for (object_type, count) in &self.query_object_counts {
+            println!("{}: {}", object_type, count);
+        }
+        println!("Edge counts:");
+        for (edge_type, count) in &self.query_edge_counts {
+            println!("{:?}: {}", edge_type, count);
+        }
         println!("Detailed edge counts:");
         let type_storage = TYPE_STORAGE.read().unwrap();
         for ((edge_type, from_type, to_type), count) in &self.edge_type_counts {
-            if edge_type.ne(&EdgeType::E2O) { continue; }
+            if edge_type.ne(&EdgeType::E2O) {
+                continue;
+            }
             println!(
                 "Edge: ({:?},{},{}) Difference: {}",
                 edge_type,
@@ -171,13 +177,13 @@ impl CaseGraph {
         self.counter
     }
 
-    // Add a node to the graph
+    /// Add a node to the graph
     pub fn add_node(&mut self, node: Node) {
         let id = node.id();
         self.nodes.insert(id, node);
     }
 
-    // Add an edge to the graph with additional attributes
+    /// Add an edge to the graph with additional attributes
     pub fn add_edge(&mut self, edge: Edge) {
         let edge_id = edge.id;
         let from = edge.from;
@@ -192,22 +198,22 @@ impl CaseGraph {
             .push(edge_id);
     }
 
-    // Retrieve node by id
+    /// Retrieve node by id
     pub fn get_node(&self, id: usize) -> Option<&Node> {
         self.nodes.get(&id)
     }
 
-    // Retrieve edge by id
+    /// Retrieve edge by id
     pub fn get_edge(&self, id: usize) -> Option<&Edge> {
         self.edges.get(&id)
     }
 
-    // Retrieve outgoing edges from a node
+    /// Retrieve outgoing edges from a node
     pub fn get_outgoing_edges(&self, from: usize) -> Option<&Vec<usize>> {
         self.adjacency.get(&from)
     }
 
-    // Retrieve neighbors by edge type
+    /// Retrieve neighbors by edge type
     pub fn get_neighbors_by_edge_type(&self, from: usize, edge_type: EdgeType) -> Vec<usize> {
         match self.adjacency.get(&from) {
             Some(edge_ids) => edge_ids
@@ -226,6 +232,7 @@ impl CaseGraph {
         }
     }
 
+    /// This function counts the number of nodes by their types.
     pub fn count_nodes_by_type(&self) -> (HashMap<EventType, usize>, HashMap<ObjectType, usize>) {
         let mut event_counts = HashMap::new();
         let mut object_counts = HashMap::new();
@@ -242,6 +249,7 @@ impl CaseGraph {
         (event_counts, object_counts)
     }
 
+    /// This function counts the number of edges by their types, distinguishing between DF, O2O, and E2O.
     pub fn count_edges_by_type(&self) -> HashMap<EdgeType, usize> {
         let mut edge_counts = HashMap::new();
         for edge in self.edges.values() {
@@ -250,10 +258,11 @@ impl CaseGraph {
         edge_counts
     }
 
+    /// This function counts the number of edges by their types, distinguishing between DF, O2O, and E2O, and additionally
+    /// counts the distinct combinations of from and to types for E2O edges. This represents a count by labels in the labeled case graph.
     pub fn count_edges_by_type_disticnt_e2o(&self) -> HashMap<(EdgeType, usize, usize), usize> {
         // edgetype is edgetype. if edge is e2o or o2o , string 1 ist from  type and string 2 is to type
         let mut edge_counts = HashMap::new();
-        let mut type_storage = TYPE_STORAGE.write().unwrap();
         for edge in self.edges.values() {
             let from_type = self.get_node(edge.from).unwrap().oc_type_id();
             let to_type = self.get_node(edge.to).unwrap().oc_type_id();

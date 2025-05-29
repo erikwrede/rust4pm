@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use graphviz_rust::cmd::Format;
-use process_mining::oc_align::align_case::CaseAlignment;
-use process_mining::oc_align::align_case_model::ModelCaseChecker;
-use process_mining::oc_align::visualization::case_visual::export_c2_with_alignment_image;
-use process_mining::oc_case::dummy_ocel_1_serialization::json_to_case_graph;
+use process_mining::oc_conformance_checking::case_assignment::CaseAssignment;
+use process_mining::oc_conformance_checking::model_case_conformance::ModelCaseChecker;
+use process_mining::oc_conformance_checking::visualization::case_visual::visualize_assignment;
+use process_mining::oc_case::from_ocel::json_to_case_graph;
 use process_mining::oc_case::serialization::deserialize_case_graph;
 use process_mining::oc_case::visualization::export_case_graph_image;
 use process_mining::oc_petri_net::initialize_ocpn_from_json;
@@ -401,7 +401,7 @@ fn run_worker(
 ) -> Result<()> {
     // Start timing
     let start_time = Instant::now();
-    println!("Hello from worker!");
+    println!("Worker started!");
 
     // Initialize ModelCaseChecker
     // Assuming these functions and structs are defined elsewhere in your project
@@ -443,14 +443,14 @@ fn run_worker(
     if let Some(result_node) = result {
         println!("Solution found for case {:?}", file_stem);
         // Align and calculate cost
-        let alignment = CaseAlignment::align_mip(&case_graph, &result_node.partial_case);
+        let alignment = CaseAssignment::align_mip(&case_graph, &result_node.partial_case);
         let cost = alignment.total_cost().unwrap_or(f64::INFINITY);
         // Save aligned image
         let aligned_image_path = visualized_dir.join(format!(
             "{}_aligned_cost_{}.png",
             file_stem, cost
         ));
-        export_c2_with_alignment_image(
+        visualize_assignment(
             &result_node.partial_case,
             &alignment,
             aligned_image_path.to_str().unwrap().to_owned(),

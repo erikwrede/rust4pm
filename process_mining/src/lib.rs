@@ -51,7 +51,7 @@ pub mod event_log {
 pub mod utils;
 pub mod oc_petri_net;
 pub mod oc_case;
-pub mod oc_align;
+pub mod oc_conformance_checking;
 mod type_storage;
 
 ///
