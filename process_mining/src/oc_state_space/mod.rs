@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use crate::oc_case::case::{CaseGraph, CaseStats, Edge, EdgeType, Event, Node, Object};
 use crate::oc_petri_net::marking::Binding;
 use crate::oc_petri_net::oc_petri_net::ObjectCentricPetriNet;
@@ -9,7 +10,7 @@ use uuid::Uuid;
 
 pub mod r#impl;
 
-pub trait InternalState: Debug + Clone {
+pub trait StateNode: Debug + Clone  {
     /// Returns the lower bound of the node.
     fn lb(&self) -> f64;
     /// Returns the depth of the node.
@@ -21,23 +22,25 @@ pub trait InternalState: Debug + Clone {
     /// Retrieves the partial case graph.
     fn partial_case(&self) -> &CaseGraph;
     /// Retrieves the action path as a string.
-    fn action_path(&self) -> String;
+    fn action_path(&self) -> &Vec<Arc<SearchNodeAction>>;
+    fn partial_case_stats(&self) -> &CaseStats;
 }
+
+
 
 /// Abstraction interface for building the OC state space. Implement this for all necessary formalisms
 pub trait ModelStateInterface {
-    type NodeType: InternalState;
+    type NodeType: StateNode;
 
     /// Returns the initial node for the OC state space.
     /// Different from the formalism, we allow to have an initial node that contains an object set.
     /// This improves DevX for building OC state spaces without OBJ-actions, operating on a fixed set of objects.
-    fn get_initial_node(&self, log_case_stats: &CaseStats) -> Self::NodeType;
+    fn get_initial_node(&mut self, log_case_stats: &CaseStats) -> Self::NodeType;
 
     fn generate_children(
         &mut self,
         node: &Self::NodeType,
-        log_case_stats: &CaseStats,
-        static_cost: f64,
+        log_case_stats: &CaseStats
     ) -> Vec<Self::NodeType>;
 }
 
@@ -60,7 +63,7 @@ impl SearchNodeAction {
     pub fn obj(ot: ObjectType, obj_id: usize) -> Self {
         SearchNodeAction::OBJ(ot, obj_id)
     }
-    
+
     pub fn event_type(&self) -> Option<EventType> {
         match self {
             SearchNodeAction::EV(event_type, _) => Some(event_type.clone()),
@@ -68,10 +71,10 @@ impl SearchNodeAction {
                 // print an error message if the action is not an event
                 eprintln!("SearchNodeAction is not an event: {:?}", self);
                 None
-            },
+            }
         }
     }
-    
+
     pub fn object_type(&self) -> Option<ObjectType> {
         match self {
             SearchNodeAction::OBJ(object_type, _) => Some(object_type.clone()),
@@ -125,7 +128,11 @@ impl SearchNodeAction {
 
                         *case_stats
                             .edge_type_counts
-                            .entry((EdgeType::E2O, event_type.clone().into(), object_type.clone().into()))
+                            .entry((
+                                EdgeType::E2O,
+                                event_type.clone().into(),
+                                object_type.clone().into(),
+                            ))
                             .or_insert(0) += 1;
                     }
                 });

@@ -1,10 +1,10 @@
 // shortest_path_cache.rs
 
-use std::collections::{HashMap, BinaryHeap};
-use std::sync::{Arc, Mutex};
-use parking_lot::RwLock;
-use uuid::Uuid;
 use crate::oc_petri_net::oc_petri_net::ObjectCentricPetriNet;
+use parking_lot::RwLock;
+use std::collections::{BinaryHeap, HashMap};
+use std::sync::{Arc, Mutex};
+use uuid::Uuid;
 
 /// Struct to represent the result of a shortest path query.
 /// Contains the path as a vector of place IDs and the distance
@@ -38,7 +38,11 @@ impl ShortestPathCache {
     /// Utilizes caching to store and retrieve previous computations.
     /// Returns `None` if no path exists.
     /// `distance` indicates the number of non-silent transitions on the path.
-    pub fn shortest_path(&self, from_place_id: &Uuid, to_place_id: &Uuid) -> Option<ShortestPathResult> {
+    pub fn shortest_path(
+        &self,
+        from_place_id: &Uuid,
+        to_place_id: &Uuid,
+    ) -> Option<ShortestPathResult> {
         // If both places are the same, return the trivial path with distance 0.
         if from_place_id == to_place_id {
             return Some(ShortestPathResult {
@@ -68,7 +72,11 @@ impl ShortestPathCache {
     /// Finds the shortest path from `from_place_id` to `to_place_id` using a modified BFS.
     /// Silent transitions are traversed with distance 0.
     /// Only traverses through places with the same `object_type`.
-    fn find_shortest_path(&self, from_place_id: &Uuid, to_place_id: &Uuid) -> Option<ShortestPathResult> {
+    fn find_shortest_path(
+        &self,
+        from_place_id: &Uuid,
+        to_place_id: &Uuid,
+    ) -> Option<ShortestPathResult> {
         // Retrieve the starting and target places.
         let start_place = self.petri_net.get_place(from_place_id)?;
         let target_object_type = start_place.object_type.clone();
@@ -86,13 +94,15 @@ impl ShortestPathCache {
         let mut visited: HashMap<Uuid, usize> = HashMap::new();
         visited.insert(*from_place_id, 0);
 
-        while let Some(State { place_id, distance, path }) = heap.pop() {
+        while let Some(State {
+            place_id,
+            distance,
+            path,
+        }) = heap.pop()
+        {
             // Check if we've reached the target.
             if &place_id == to_place_id {
-                return Some(ShortestPathResult {
-                    path,
-                    distance,
-                });
+                return Some(ShortestPathResult { path, distance });
             }
 
             // Get the current place.
@@ -200,10 +210,10 @@ impl Ord for State {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use super::*;
     use crate::oc_petri_net::initialize_ocpn_from_json;
     use crate::oc_petri_net::oc_petri_net::Place;
-    use super::*;
+    use std::fs;
 
     #[test]
     fn test_shortest_path_simple() {
@@ -382,8 +392,18 @@ mod tests {
         let mut net = ObjectCentricPetriNet::new();
 
         // Add places with the same object_type.
-        let p1 = net.add_place(Some("P1".to_string()), "Disconnected".to_string(), true, false);
-        let p2 = net.add_place(Some("P2".to_string()), "Disconnected".to_string(), false, false);
+        let p1 = net.add_place(
+            Some("P1".to_string()),
+            "Disconnected".to_string(),
+            true,
+            false,
+        );
+        let p2 = net.add_place(
+            Some("P2".to_string()),
+            "Disconnected".to_string(),
+            false,
+            false,
+        );
 
         // Add a transition that doesn't connect p1 and p2.
         let t1 = net.add_transition("T1".to_string(), Some("Transition 1".to_string()), false);
@@ -408,7 +428,8 @@ mod tests {
         // Initialize your ObjectCentricPetriNet (ocpn) here
 
         let json_data =
-            fs::read_to_string("./src/oc_conformance_checking/test_data/bpi17/oc_petri_net.json").unwrap();
+            fs::read_to_string("./src/oc_conformance_checking/test_data/bpi17/oc_petri_net.json")
+                .unwrap();
         let net = initialize_ocpn_from_json(&json_data);
 
         // After setting up your OCPN, continue with the test

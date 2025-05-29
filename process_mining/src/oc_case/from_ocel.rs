@@ -86,7 +86,7 @@ struct OcelLog {
     objects: HashMap<String, OcelObject>,
 }
 
-/// This helper struct can be used to iterate over JSONOCEL files in a directory, 
+/// This helper struct can be used to iterate over JSONOCEL files in a directory,
 /// extracting a `CaseGraph` from each file.
 pub struct CaseGraphIterator {
     entries: fs::ReadDir,

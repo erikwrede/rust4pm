@@ -1,8 +1,8 @@
+use crate::oc_petri_net::oc_petri_net::ObjectCentricPetriNet;
+use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
-use parking_lot::RwLock;
 use uuid::Uuid;
-use crate::oc_petri_net::oc_petri_net::ObjectCentricPetriNet;
 
 /// Struct to cache reachability information between places in the Petri net.
 #[derive(Debug)]
@@ -90,12 +90,11 @@ impl ReachabilityCache {
                     if next_place.oc_object_type != place.oc_object_type {
                         continue;
                     }
-                    
+
                     // If we've reached the target place, return true.
                     if &next_place_id == to_place_id {
                         return true;
                     }
-                    
 
                     // If not visited, add to the queue.
                     if visited_places.insert(next_place_id.clone()) {

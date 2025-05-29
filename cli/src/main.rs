@@ -1,25 +1,25 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use graphviz_rust::cmd::Format;
-use process_mining::oc_conformance_checking::case_assignment::CaseAssignment;
-use process_mining::oc_conformance_checking::model_case_conformance::ModelCaseChecker;
-use process_mining::oc_conformance_checking::visualization::case_visual::visualize_assignment;
 use process_mining::oc_case::from_ocel::json_to_case_graph;
 use process_mining::oc_case::serialization::deserialize_case_graph;
 use process_mining::oc_case::visualization::export_case_graph_image;
+use process_mining::oc_conformance_checking::case_assignment::CaseAssignment;
+use process_mining::oc_conformance_checking::model_case_conformance::ModelCaseChecker;
+use process_mining::oc_conformance_checking::visualization::case_visual::visualize_assignment;
 use process_mining::oc_petri_net::initialize_ocpn_from_json;
 use process_mining::oc_petri_net::marking::Marking;
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
-use std::os::unix::process::ExitStatusExt;
 
 /// CLI tool for rigorously testing the branch and bound function on multiple case graphs.
 #[derive(Parser)]
@@ -304,7 +304,11 @@ fn run_controller(
 }
 
 /// Handles the exit of a worker process
-fn handle_worker_exit(worker: &Worker, status: std::process::ExitStatus, output_dir: &Path) -> Result<()> {
+fn handle_worker_exit(
+    worker: &Worker,
+    status: std::process::ExitStatus,
+    output_dir: &Path,
+) -> Result<()> {
     let file_stem = worker
         .log_path
         .file_stem()
@@ -317,10 +321,7 @@ fn handle_worker_exit(worker: &Worker, status: std::process::ExitStatus, output_
         let temp_stats_path = output_dir.join(format!("{}_temp.json", file_stem));
         if temp_stats_path.exists() {
             let stats_content = fs::read_to_string(&temp_stats_path).with_context(|| {
-                format!(
-                    "Failed to read temporary stats file {:?}",
-                    temp_stats_path
-                )
+                format!("Failed to read temporary stats file {:?}", temp_stats_path)
             })?;
             let stats: CaseStats = serde_json::from_str(&stats_content).with_context(|| {
                 format!(
@@ -337,15 +338,10 @@ fn handle_worker_exit(worker: &Worker, status: std::process::ExitStatus, output_
             let duration = stats.duration_seconds;
             println!(
                 "Completed case {} in {:.2} seconds with cost {}",
-                file_stem,
-                duration,
-                stats.alignment_cost
+                file_stem, duration, stats.alignment_cost
             );
         } else {
-            eprintln!(
-                "Worker did not produce stats file for case {}",
-                file_stem
-            );
+            eprintln!("Worker did not produce stats file for case {}", file_stem);
             // Optionally, handle this scenario as needed
         }
     } else {
@@ -382,12 +378,8 @@ fn handle_worker_exit(worker: &Worker, status: std::process::ExitStatus, output_
             alignment_cost: f64::INFINITY, // Indicate failure
         };
         let stats_json = serde_json::to_string(&stats)?;
-        fs::write(&worker.stats_path, stats_json).with_context(|| {
-            format!(
-                "Failed to write stats file {:?}",
-                worker.stats_path
-            )
-        })?;
+        fs::write(&worker.stats_path, stats_json)
+            .with_context(|| format!("Failed to write stats file {:?}", worker.stats_path))?;
     }
     Ok(())
 }
@@ -405,8 +397,8 @@ fn run_worker(
 
     // Initialize ModelCaseChecker
     // Assuming these functions and structs are defined elsewhere in your project
-    let json_data = fs::read_to_string(petri_net)
-        .with_context(|| format!("Reading {:?}", petri_net))?;
+    let json_data =
+        fs::read_to_string(petri_net).with_context(|| format!("Reading {:?}", petri_net))?;
     let ocpn = initialize_ocpn_from_json(&json_data);
     let petri_net_arc = std::sync::Arc::new(ocpn);
     let initial_marking = Marking::new(petri_net_arc.clone());
@@ -446,10 +438,8 @@ fn run_worker(
         let alignment = CaseAssignment::align_mip(&case_graph, &result_node.partial_case);
         let cost = alignment.total_cost().unwrap_or(f64::INFINITY);
         // Save aligned image
-        let aligned_image_path = visualized_dir.join(format!(
-            "{}_aligned_cost_{}.png",
-            file_stem, cost
-        ));
+        let aligned_image_path =
+            visualized_dir.join(format!("{}_aligned_cost_{}.png", file_stem, cost));
         visualize_assignment(
             &result_node.partial_case,
             &alignment,
@@ -508,10 +498,10 @@ fn find_case_graph_files(dir: &Path) -> Result<Vec<PathBuf>> {
         let path = entry.path();
         if path.is_file()
             && path
-            .extension()
-            .and_then(OsStr::to_str)
-            .map(|ext| ext.eq_ignore_ascii_case("jsonocel"))
-            .unwrap_or(false)
+                .extension()
+                .and_then(OsStr::to_str)
+                .map(|ext| ext.eq_ignore_ascii_case("jsonocel"))
+                .unwrap_or(false)
         {
             files.push(path);
         }

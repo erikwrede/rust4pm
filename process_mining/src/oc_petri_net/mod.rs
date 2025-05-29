@@ -1,5 +1,5 @@
-pub mod oc_petri_net;
 pub mod marking;
+pub mod oc_petri_net;
 
 mod util;
 

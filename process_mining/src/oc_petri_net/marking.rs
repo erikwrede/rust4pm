@@ -1,24 +1,23 @@
 use crate::oc_conformance_checking::util::reachability_cache::ReachabilityCache;
 use crate::oc_petri_net::oc_petri_net::{ObjectCentricPetriNet, Transition};
 use crate::oc_petri_net::util::intersect_hashbag::intersect_hashbags;
+use crate::type_storage::ObjectType;
 use hashbag::HashBag;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::type_storage::ObjectType;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
 
 /// An OCToken represents an object in a Petri net marking.
 /// Tokens have a unique ID which is generated upon creation.
 /// If tokens are used in a firing, the ID remains the same.
-/// 
-/// If you need to associate tokens with actual objects, 
+///
+/// If you need to associate tokens with actual objects,
 /// store the object ID mapping in a separate structure for maximum performance.
-/// 
+///
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct OCToken {
     pub id: usize,
@@ -109,7 +108,8 @@ impl Marking {
     /// Returns all possible firing combinations for the given transition.
     pub fn get_firing_combinations(&self, transition: &Transition) -> Vec<Binding> {
         let default: HashBag<OCToken> = HashBag::new();
-        let mut input_place_map: HashMap<ObjectType, Vec<(&Uuid, &HashBag<OCToken>)>> = HashMap::new();
+        let mut input_place_map: HashMap<ObjectType, Vec<(&Uuid, &HashBag<OCToken>)>> =
+            HashMap::new();
 
         let mut object_type_variable: HashMap<ObjectType, bool> = HashMap::new();
 
@@ -158,7 +158,9 @@ impl Marking {
             //      println!("places: {:?}", places);
             // //     println!("-------------------");
             // }
-            let common_tokens = common_tokens_per_type.get(_obj_type).expect("Common tokens not found");
+            let common_tokens = common_tokens_per_type
+                .get(_obj_type)
+                .expect("Common tokens not found");
 
             let firings = {
                 //Normal places
@@ -454,7 +456,7 @@ impl PartialEq for ObjectBindingInfo {
 //         self.tokens.hash(state);
 //     }
 // }
-// 
+//
 // impl Hash for Binding {
 //     fn hash<H: Hasher>(&self, state: &mut H) {
 //         self.transition_id.hash(state);

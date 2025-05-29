@@ -12,13 +12,13 @@ trait Mappable {
 
 #[derive(Debug, Clone)]
 pub enum NodeMapping {
-    RealNode(usize, usize), // (c1_node, c2_node)
+    RealNode(usize, usize),     // (c1_node, c2_node)
     InsertedNode(usize, usize), // (c1_node, void_node_id)
 }
 
 #[derive(Debug, Clone)]
 pub enum EdgeMapping {
-    RealEdge(usize, usize), // (c1_edge, c2_edge)
+    RealEdge(usize, usize),     // (c1_edge, c2_edge)
     InsertedEdge(usize, usize), // (c1_edge, void_edge_id)
 }
 
@@ -50,8 +50,8 @@ impl Mappable for EdgeMapping {
 pub struct CaseAssignment<'a> {
     pub c1: &'a CaseGraph,
     pub c2: &'a CaseGraph,
-    pub inserted_nodes: HashMap<usize, Node>,          // id -> Node
-    pub inserted_edges: HashMap<usize, Edge>,          // id -> Edge
+    pub inserted_nodes: HashMap<usize, Node>, // id -> Node
+    pub inserted_edges: HashMap<usize, Edge>, // id -> Edge
     pub node_mapping: HashMap<usize, NodeMapping>, // c1_node_id -> mapping
     pub edge_mapping: HashMap<usize, EdgeMapping>, // c1_edge_id -> mapping
 }
@@ -453,7 +453,7 @@ impl<'a> CaseAssignment<'a> {
 
         Ok(total)
     }
-    
+
     pub fn print_stats(&self) {
         let total_cost = self.total_cost();
         match total_cost {
@@ -464,7 +464,7 @@ impl<'a> CaseAssignment<'a> {
                 println!("Error: {}", err);
             }
         }
-        
+
         // print amount of void edges
         println!("Void edges: {}", self.inserted_edges.len());
         // print amount of void nodes

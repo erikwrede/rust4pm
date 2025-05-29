@@ -100,7 +100,6 @@ mod tests {
         // Check that the petri net has the correct number of places and transitions
         assert_eq!(ocpn.places.len(), 3);
         assert_eq!(ocpn.transitions.len(), 2);
-        
 
         // Check that the petri net has the correct number of input and output arcs
         assert_eq!(ocpn.input_arcs.len(), 3);

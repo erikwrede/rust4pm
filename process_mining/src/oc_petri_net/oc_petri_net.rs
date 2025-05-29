@@ -1,9 +1,9 @@
+use crate::type_storage::{EventType, ObjectType, TYPE_STORAGE};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::type_storage::{EventType, ObjectType, TYPE_STORAGE};
 
 /// Macro to implement `PartialEq`, `Eq`, and `Hash` based on `id` for structs.
 #[macro_export]
@@ -153,10 +153,7 @@ impl ObjectCentricPetriNet {
     }
 
     pub fn get_initial_places(&self) -> Vec<&Place> {
-        self.places
-            .values()
-            .filter(|place| place.initial)
-            .collect()
+        self.places.values().filter(|place| place.initial).collect()
     }
 
     pub fn get_final_places(&self) -> Vec<&Place> {
@@ -165,9 +162,11 @@ impl ObjectCentricPetriNet {
             .filter(|place| place.final_place)
             .collect()
     }
-    
+
     pub fn get_final_place_for_type(&self, object_type: &str) -> Option<&Place> {
-        self.places.values().find(|place| place.object_type == object_type && place.final_place)
+        self.places
+            .values()
+            .find(|place| place.object_type == object_type && place.final_place)
     }
 
     // Transition Operations
@@ -177,7 +176,6 @@ impl ObjectCentricPetriNet {
         label: Option<String>,
         silent: bool,
     ) -> Transition {
-
         let mut type_storage = TYPE_STORAGE.write().unwrap();
         let event_type = type_storage.get_or_insert_type_id(&name);
         let transition = Transition {

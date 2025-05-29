@@ -1,7 +1,7 @@
+use crate::oc_case::case::{CaseGraph, Edge, EdgeType, Event, Node, Object};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
-use crate::oc_case::case::{CaseGraph, Edge, EdgeType, Event, Node, Object};
 
 // Implement Serialize and Deserialize on Event
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -122,8 +122,16 @@ pub struct SerializableCaseGraph {
 impl From<CaseGraph> for SerializableCaseGraph {
     fn from(graph: CaseGraph) -> Self {
         SerializableCaseGraph {
-            nodes: graph.nodes.into_iter().map(|(id, node)| (id, node.into())).collect(),
-            edges: graph.edges.into_iter().map(|(id, edge)| (id, edge.into())).collect(),
+            nodes: graph
+                .nodes
+                .into_iter()
+                .map(|(id, node)| (id, node.into()))
+                .collect(),
+            edges: graph
+                .edges
+                .into_iter()
+                .map(|(id, edge)| (id, edge.into()))
+                .collect(),
             adjacency: graph.adjacency,
             counter: graph.counter,
         }
@@ -133,12 +141,20 @@ impl From<CaseGraph> for SerializableCaseGraph {
 impl From<SerializableCaseGraph> for CaseGraph {
     fn from(serializable_graph: SerializableCaseGraph) -> Self {
         CaseGraph {
-            nodes: serializable_graph.nodes.into_iter().map(|(id, node)| (id, node.into())).collect(),
-            edges: serializable_graph.edges.into_iter().map(|(id, edge)| (id, edge.into())).collect(),
+            nodes: serializable_graph
+                .nodes
+                .into_iter()
+                .map(|(id, node)| (id, node.into()))
+                .collect(),
+            edges: serializable_graph
+                .edges
+                .into_iter()
+                .map(|(id, edge)| (id, edge.into()))
+                .collect(),
             adjacency: serializable_graph.adjacency,
             counter: serializable_graph.counter,
             // FIXME: Initialize most_recent_event_id properly, not needed for now
-            most_recent_event_id: None
+            most_recent_event_id: None,
         }
     }
 }
@@ -150,6 +166,7 @@ pub fn serialize_case_graph(graph: &CaseGraph) -> String {
 }
 
 pub fn deserialize_case_graph(serialized_graph: &str) -> CaseGraph {
-    let serializable_graph: SerializableCaseGraph = serde_json::from_str(serialized_graph).expect("Failed to deserialize CaseGraph");
+    let serializable_graph: SerializableCaseGraph =
+        serde_json::from_str(serialized_graph).expect("Failed to deserialize CaseGraph");
     serializable_graph.into()
 }

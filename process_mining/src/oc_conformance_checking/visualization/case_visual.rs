@@ -1,8 +1,6 @@
-use crate::oc_conformance_checking::case_assignment::{CaseAssignment, EdgeMapping, NodeMapping};
 use crate::oc_case::case::Node::{EventNode, ObjectNode};
-use crate::oc_case::case::{
-    CaseGraph, Edge as CaseEdge, EdgeType,
-};
+use crate::oc_case::case::{CaseGraph, Edge as CaseEdge, EdgeType};
+use crate::oc_conformance_checking::case_assignment::{CaseAssignment, EdgeMapping, NodeMapping};
 use graphviz_rust::{
     cmd::Format,
     dot_generator::{attr, edge, graph, id, node, node_id, stmt},
@@ -175,18 +173,18 @@ pub fn export_c2_with_alignment_to_dot_graph(
         // Prefix with "void_edge_" to ensure unique edge IDs in DOT
         // let void_edge_from = format!("{}", void_edge.from);
         // let void_edge_to = format!("{}", void_edge.to);
-        // 
+        //
         // get edge from and to node names in graph c2
         let void_edge_from = match alignment.node_mapping.get(&void_edge.from).unwrap() {
             NodeMapping::InsertedNode(_, void_node_id) => format!("void_{}", void_node_id),
             NodeMapping::RealNode(_, c2_id) => format!("{}", c2.nodes.get(c2_id).unwrap().id()),
         };
-        
+
         let void_edge_to = match alignment.node_mapping.get(&void_edge.to).unwrap() {
             NodeMapping::InsertedNode(_, void_node_id) => format!("void_{}", void_node_id),
             NodeMapping::RealNode(_, c2_id) => format!("{}", c2.nodes.get(c2_id).unwrap().id()),
         };
-        
+
         edge_stmts.push(stmt!(edge!(
             node_id!(&void_edge_from) => node_id!(&void_edge_to);
             attr!("label", esc edge_label),
@@ -294,7 +292,6 @@ mod tests {
             Some(2.0),
         )
         .expect("Failed to export visualization.");
-
 
         export_case_graph_image(&A, "c1.png", Format::Png, Some(2.0)).unwrap();
         export_case_graph_image(&B, "c2.png", Format::Png, Some(2.0)).unwrap();

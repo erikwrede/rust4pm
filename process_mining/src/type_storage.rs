@@ -1,8 +1,8 @@
+use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
-use std::sync::{RwLock};
-use lazy_static::lazy_static;
+use std::sync::RwLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ObjectType(pub usize);
@@ -98,8 +98,8 @@ impl TypeStorage {
     pub fn get_type_id(&self, type_name: &str) -> Option<usize> {
         self.types.get(type_name).copied()
     }
-    
-    pub fn get_or_insert_type_id(&mut self, type_name:  &str) -> usize {
+
+    pub fn get_or_insert_type_id(&mut self, type_name: &str) -> usize {
         if let Some(&type_id) = self.types.get(type_name) {
             type_id
         } else {

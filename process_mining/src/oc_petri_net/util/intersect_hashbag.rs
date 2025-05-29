@@ -1,6 +1,6 @@
 use hashbag::HashBag;
-use std::hash::{BuildHasher, Hash};
 use std::cmp::min;
+use std::hash::{BuildHasher, Hash};
 
 /// Intersects multiple `HashBag` instances, returning a new `HashBag` containing only the elements
 /// present in **all** input `HashBag`s. The count for each element in the resulting `HashBag`
@@ -61,17 +61,15 @@ use std::cmp::min;
 ///     }
 /// }
 /// ```
-pub fn intersect_hashbags<T, S>(
-    bags: &[&HashBag<T, S>],
-) -> HashBag<T, S>
+pub fn intersect_hashbags<T, S>(bags: &[&HashBag<T, S>]) -> HashBag<T, S>
 where
     T: Clone + Eq + Hash,
-    S: BuildHasher + Clone
+    S: BuildHasher + Clone,
 {
-    if(bags.len() == 1) {
+    if (bags.len() == 1) {
         return bags[0].clone();
     }
-    
+
     // Find the bag with the smallest set_len to minimize iterations
     let smallest_bag = bags
         .iter()
@@ -113,7 +111,7 @@ where
             intersection.insert_many(item.clone(), min_count);
         }
     }
- 
+
     intersection
 }
 
