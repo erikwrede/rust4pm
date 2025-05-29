@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
+use process_mining::oc_state_space::r#impl::ocpt::OCPTStateInterface;
 
 /// CLI tool for rigorously testing the branch and bound function on multiple case graphs.
 #[derive(Parser)]
@@ -405,9 +406,12 @@ fn run_worker(
     let shortest_case_json = fs::read_to_string(smallest_case)
         .with_context(|| format!("Reading {:?}", smallest_case))?;
     let shortest_case = deserialize_case_graph(&shortest_case_json);
-    let mut checker =
-        ModelCaseChecker::new_with_shortest_case(petri_net_arc.clone(), shortest_case);
+    
+    let interface = OCPTStateInterface::new(petri_net_arc.clone());
 
+    // Initialize ModelCaseChecker
+    let mut checker =
+        ModelCaseChecker::new_with_shortest_case(Box::new(interface), shortest_case);
     // Read the specific case graph
     let case_file = fs::read_to_string(case_graph)
         .with_context(|| format!("Reading case graph {:?}", case_graph))?;

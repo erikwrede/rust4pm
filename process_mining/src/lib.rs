@@ -51,7 +51,7 @@ pub mod oc_case;
 pub mod oc_conformance_checking;
 pub mod oc_petri_net;
 
-mod oc_state_space;
+pub mod oc_state_space;
 
 mod type_storage;
 /// Util module with smaller helper functions, structs or enums

@@ -1,5 +1,5 @@
 ./target/release/cli controller \
-    --json-folder /Users/erikwrede/dev/uni/ma-py/ocgc-py/ocgc/problemkinder/crash/ \
-    --petri-net /Users/erikwrede/dev/oss/process-mining/rust4pm/process_mining/src/oc_align/test_data/bpi17/oc_petri_net.json \
-    --smallest-case /Users/erikwrede/dev/oss/process-mining/rust4pm/process_mining/src/oc_align/test_data/bpi17/shortest_case_graph.json \
+    --json-folder test_data/bpi17/case_graphs \
+    --petri-net test_data/bpi17/oc_petri_net.json \
+    --smallest-case test_data/bpi17/shortest_case_graph.json \
     --output-dir ./cli-output
