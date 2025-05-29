@@ -14,6 +14,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::ops::{Add, Deref, Not};
 use std::sync::Arc;
 use uuid::Uuid;
+use crate::oc_state_space::SearchNodeAction;
 
 #[derive(Debug, Clone)]
 pub struct SearchNode {
@@ -108,104 +109,6 @@ impl SearchNode {
             forbidden_firings,
         }
     }
-
-    fn action_path(&self, model: Arc<ObjectCentricPetriNet>) -> String {
-        self.action_path
-            .iter()
-            .filter_map(|action| match **action {
-                SearchNodeAction::FireTransition(ref transition_id, ref binding) => {
-                    let transition_name = model.get_transition(transition_id).unwrap().name.clone();
-                    let binding_info: Vec<String> = binding
-                        .object_binding_info
-                        .iter()
-                        .map(|(object_type, binding_info)| {
-                            let tokens: Vec<String> = binding_info
-                                .tokens
-                                .iter()
-                                .map(|token| token.id.to_string())
-                                .collect();
-                            format!("{}: [{}]", object_type.to_string(), tokens.join(", "))
-                        })
-                        .collect();
-                    Some(format!("{} ({})", transition_name, binding_info.join(", ")))
-                }
-                _ => None,
-            })
-            .collect::<Vec<String>>()
-            .join(" -> ")
-    }
-}
-
-#[derive(Debug, Clone)]
-enum SearchNodeAction {
-    FireTransition(Uuid, Arc<Binding>),
-    AddToken(Uuid),
-    // used for the initial node
-    VOID,
-}
-
-impl SearchNodeAction {
-    fn fire_transition(transition_id: Uuid, binding: Arc<Binding>) -> Self {
-        SearchNodeAction::FireTransition(transition_id, binding)
-    }
-
-    fn add_token(place_id: Uuid) -> Self {
-        SearchNodeAction::AddToken(place_id)
-    }
-
-    fn is_pre_firing(&self) -> bool {
-        match self {
-            SearchNodeAction::FireTransition(_, _) => false,
-            _ => true,
-        }
-    }
-
-    fn transition_id(&self) -> Option<Uuid> {
-        match self {
-            SearchNodeAction::FireTransition(transition_id, _) => Some(*transition_id),
-            _ => None,
-        }
-    }
-
-    fn log(&self, object_centric_petri_net: Arc<ObjectCentricPetriNet>) {
-        match self {
-            SearchNodeAction::FireTransition(transition_id, binding) => {
-                // map objectbindinginfo to object names, token count
-                let object_names: Vec<String> = binding
-                    .object_binding_info
-                    .values()
-                    .map(|binding_info| {
-                        let object_name = binding_info.object_type.clone();
-                        let token_count = binding_info.tokens.len();
-                        format!("{}: {}", object_name, token_count)
-                    })
-                    .collect();
-
-                println!(
-                    "Firing transition: {} with binding: {:?}",
-                    object_centric_petri_net
-                        .get_transition(transition_id)
-                        .unwrap()
-                        .name,
-                    object_names
-                );
-            }
-            SearchNodeAction::AddToken(object_id) => {
-                println!(
-                    "Adding token to place: {}",
-                    object_centric_petri_net
-                        .get_place(object_id)
-                        .unwrap()
-                        .name
-                        .clone()
-                        .unwrap_or("no_name".to_string())
-                );
-            }
-            SearchNodeAction::VOID => {
-                println!("Initial node");
-            }
-        }
-    }
 }
 
 /// Checker for conformance of a case to a model
@@ -221,7 +124,7 @@ pub struct ModelCaseChecker {
     model_transitions: HashSet<String>,
 }
 impl ModelCaseChecker {
-    
+
     /// Initialize the checker with a model.
     pub fn new(model: Arc<ObjectCentricPetriNet>) -> Self {
         ModelCaseChecker {
@@ -1092,20 +995,12 @@ impl ModelCaseChecker {
                     let token_ids = new_marking.add_initial_token_count(&place.id, 1);
 
                     let mut new_partial_case = node.partial_case.clone();
+                    let mut new_partial_case_stats = node.partial_case_stats.clone();
                     let object_id = new_partial_case.get_new_id();
 
-                    let new_object = Node::ObjectNode(Object {
-                        id: object_id.clone(),
-                        object_type: place.object_type.clone().into(),
-                    });
-                    new_partial_case.add_node(new_object);
 
-                    let mut new_partial_case_stats = node.partial_case_stats.clone();
-                    new_partial_case_stats
-                        .query_object_counts
-                        .entry(place.oc_object_type)
-                        .and_modify(|e| *e += 1)
-                        .or_insert(1);
+                    let new_action = Arc::new(SearchNodeAction::obj(place.oc_object_type.clone(), object_id));
+                    new_action.apply_to_case_graph(&mut new_partial_case, Some(&mut new_partial_case_stats));
 
                     let min_cost = self.calculate_min_cost(
                         &query_case_stats,
@@ -1115,7 +1010,6 @@ impl ModelCaseChecker {
                     );
                     self.token_graph_id_mapping.insert(token_ids[0], object_id);
                     let mut new_action_path = node.action_path.clone();
-                    let new_action = Arc::new(SearchNodeAction::add_token(place.id.clone()));
                     new_action_path.push(new_action);
                     children.push(SearchNode::new_with_stats(
                         new_marking,
@@ -1233,83 +1127,30 @@ impl ModelCaseChecker {
                 .for_each(|(index, combination)| {
                     let mut new_marking = node.marking.clone();
                     let mut new_partial_case = node.partial_case.clone();
+                    let mut new_partial_case_stats = node.partial_case_stats.clone();
 
                     let mut most_recent_event_id = node.most_recent_event_id.clone();
 
                     new_marking.fire_transition(transition, combination);
-                    let mut new_partial_case_stats = node.partial_case_stats.clone();
 
-                    if (!transition.silent) {
-                        let event_id = new_partial_case.get_new_id();
-                        let new_event = Node::EventNode(Event {
-                            id: event_id,
-                            event_type: transition.name.clone().into(),
-                        });
-                        new_partial_case.add_node(new_event);
-
-                        combination
-                            .object_binding_info
-                            .values()
-                            .for_each(|binding_info| {
-                                binding_info.tokens.iter().for_each(|token| {
-                                    let e20_edge_id = new_partial_case.get_new_id();
-                                    new_partial_case.add_edge(Edge::new(
-                                        e20_edge_id,
-                                        event_id,
-                                        self.token_graph_id_mapping.get(&token.id).unwrap().clone(),
-                                        EdgeType::E2O,
-                                    ));
-                                    new_partial_case_stats
-                                        .query_edge_counts
-                                        .entry(EdgeType::E2O)
-                                        .and_modify(|e| *e += 1)
-                                        .or_insert(1);
-
-                                    *new_partial_case_stats
-                                        .edge_type_counts
-                                        .entry((
-                                            EdgeType::E2O,
-                                            transition.event_type.into(),
-                                            binding_info.object_type.into(),
-                                        ))
-                                        .or_insert(0) += 1;
+                    let new_action = if (!transition.silent) {
+                        
+                        let new_action = Arc::new(SearchNodeAction::ev(
+                            transition.event_type,
+                            // flatten objectBinding_info into vec<object_type, object_id>
+                            combination.object_binding_info
+                                .iter()
+                                .flat_map(|(object_type, binding_info)| {
+                                    binding_info.tokens.iter().map(|token| (object_type.clone(),self.token_graph_id_mapping.get(&token.id).unwrap().clone()))
                                 })
-                            });
+                                .collect(),
+                        ));
 
-                        let df_edge_id = new_partial_case.get_new_id();
-                        if let Some(prev_event_id) = node.most_recent_event_id {
-                            new_partial_case.add_edge(Edge::new(
-                                df_edge_id,
-                                prev_event_id,
-                                event_id,
-                                EdgeType::DF,
-                            ));
-                            new_partial_case_stats
-                                .query_edge_counts
-                                .entry(EdgeType::DF)
-                                .and_modify(|e| *e += 1)
-                                .or_insert(1);
-
-                            let a = new_partial_case
-                                .get_node(prev_event_id)
-                                .unwrap()
-                                .oc_type_id();
-                            let b = transition.event_type.into();
-
-                            *new_partial_case_stats
-                                .edge_type_counts
-                                .entry((EdgeType::DF, a, b))
-                                .or_insert(0) += 1;
-                        }
-
-                        new_partial_case_stats
-                            .query_event_counts
-                            .entry(transition.event_type)
-                            .and_modify(|e| *e += 1)
-                            .or_insert(1);
-
-                        most_recent_event_id = Some(event_id);
-                    }
+                        new_action.apply_to_case_graph(&mut new_partial_case, Some(&mut new_partial_case_stats));
+                        Some(new_action)
+                    } else {
+                        None
+                    };
 
                     let new_cost = self.calculate_min_cost(
                         &query_case_stats,
@@ -1410,11 +1251,7 @@ impl ModelCaseChecker {
                     };
 
                     let mut new_action_path = node.action_path.clone();
-                    let new_action = Arc::new(SearchNodeAction::fire_transition(
-                        transition.id,
-                        combination.clone().clone(),
-                    ));
-                    new_action_path.push(new_action);
+                    new_action_path.push(new_action.unwrap_or_else(|| Arc::new(SearchNodeAction::ev(std::usize::MAX.into(), vec![]))));
                     transition_children.push(SearchNode::new_with_stats(
                         new_marking,
                         new_partial_case,
@@ -1458,36 +1295,34 @@ impl ModelCaseChecker {
         //println!("done checking dead");
 
         // sort the transitions by the difference between case stats and query case stats
-        transition_children.sort_by(|a, b| {
-            // prioritize transitions that have a higher difference between the case stats and the query case stats
-            // all actions in this list are transitions
-            let transition_a = a.action_path.last().unwrap().transition_id().unwrap();
-
-            let transition_type = &self.model.get_transition(&transition_a).unwrap().event_type;
-
-            let difference_a = *query_case_stats
-                .query_event_counts
-                .get(transition_type)
-                .unwrap_or(&0) as i64
-                - *a.partial_case_stats
-                    .query_event_counts
-                    .get(transition_type)
-                    .unwrap_or(&0) as i64;
-
-            let transition_b = b.action_path.last().unwrap().transition_id().unwrap();
-            let transition_type = &self.model.get_transition(&transition_b).unwrap().event_type;
-
-            let difference_b = *query_case_stats
-                .query_event_counts
-                .get(transition_type)
-                .unwrap_or(&0) as i64
-                - *b.partial_case_stats
-                    .query_event_counts
-                    .get(transition_type)
-                    .unwrap_or(&0) as i64;
-
-            difference_a.partial_cmp(&difference_b).unwrap()
-        });
+        // transition_children.sort_by(|a, b| {
+        //     // prioritize transitions that have a higher difference between the case stats and the query case stats
+        //     // all actions in this list are transitions
+        //     let transition_type = &a.action_path.last().unwrap().event_type().unwrap();
+        // 
+        // 
+        //     let difference_a = *query_case_stats
+        //         .query_event_counts
+        //         .get(transition_type)
+        //         .unwrap_or(&0) as i64
+        //         - *a.partial_case_stats
+        //             .query_event_counts
+        //             .get(transition_type)
+        //             .unwrap_or(&0) as i64;
+        // 
+        //     let transition_type = &b.action_path.last().unwrap().event_type().unwrap();
+        // 
+        //     let difference_b = *query_case_stats
+        //         .query_event_counts
+        //         .get(transition_type)
+        //         .unwrap_or(&0) as i64
+        //         - *b.partial_case_stats
+        //             .query_event_counts
+        //             .get(transition_type)
+        //             .unwrap_or(&0) as i64;
+        // 
+        //     difference_a.partial_cmp(&difference_b).unwrap()
+        // });
         //return transition_children;
         children.append(&mut transition_children);
         children

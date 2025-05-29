@@ -137,6 +137,8 @@ impl From<SerializableCaseGraph> for CaseGraph {
             edges: serializable_graph.edges.into_iter().map(|(id, edge)| (id, edge.into())).collect(),
             adjacency: serializable_graph.adjacency,
             counter: serializable_graph.counter,
+            // FIXME: Initialize most_recent_event_id properly, not needed for now
+            most_recent_event_id: None
         }
     }
 }

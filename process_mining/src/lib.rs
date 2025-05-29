@@ -47,12 +47,15 @@ pub mod event_log {
     mod tests;
 }
 
-/// Util module with smaller helper functions, structs or enums
-pub mod utils;
-pub mod oc_petri_net;
 pub mod oc_case;
 pub mod oc_conformance_checking;
+pub mod oc_petri_net;
+
+mod oc_state_space;
+
 mod type_storage;
+/// Util module with smaller helper functions, structs or enums
+pub mod utils;
 
 ///
 /// Petri nets

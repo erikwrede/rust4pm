@@ -161,6 +161,7 @@ pub struct CaseGraph {
     pub edges: HashMap<usize, Edge>,                  // Keyed by edge ID
     pub(crate) adjacency: HashMap<usize, Vec<usize>>, // from node ID -> Vec of edge IDs
     pub(crate) counter: usize,
+    pub most_recent_event_id: Option<usize>, // Optional to track the most recent event ID. Handy when adding new events.
 }
 
 impl CaseGraph {
@@ -170,6 +171,7 @@ impl CaseGraph {
             edges: HashMap::new(),
             adjacency: HashMap::new(),
             counter: 0,
+            most_recent_event_id: None,
         }
     }
     pub fn get_new_id(&mut self) -> usize {
@@ -180,6 +182,10 @@ impl CaseGraph {
     /// Add a node to the graph
     pub fn add_node(&mut self, node: Node) {
         let id = node.id();
+        // If the node is an event, update the most recent event ID
+        if node.is_event() {
+            self.most_recent_event_id = Some(id);
+        }
         self.nodes.insert(id, node);
     }
 
