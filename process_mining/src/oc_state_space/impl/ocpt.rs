@@ -1,11 +1,10 @@
 use crate::oc_case::case::{CaseGraph, CaseStats, EdgeType};
-use crate::oc_conformance_checking::model_case_conformance::SearchNode;
 use crate::oc_conformance_checking::util::reachability_cache::ReachabilityCache;
 use crate::oc_conformance_checking::util::shortest_path_cache::ShortestPathCache;
 use crate::oc_petri_net::marking::{Binding, Marking, OCToken};
 use crate::oc_petri_net::oc_petri_net::{ObjectCentricPetriNet, Transition};
 use crate::oc_state_space::r#impl::ocpn::OCPNStateNode;
-use crate::oc_state_space::{ModelStateInterface, SearchNodeAction};
+use crate::oc_state_space::{ModelStateInterface, SearchNodeAction, StateNode};
 use crate::type_storage::{EventType, ObjectType, TYPE_STORAGE};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -47,7 +46,7 @@ impl OCPTStateInterface {
             model,
         }
     }
-    
+
     /// Calculates the lower bound for a given node, including formalism-specific heuristics.
     #[inline(never)]
     fn calculate_lb(
@@ -350,6 +349,264 @@ impl OCPTStateInterface {
             .cloned()
             .collect()
     }
+    #[inline(always)]
+    fn iterate_enabled_firings<'a>(
+        &'a self,
+        marking: &'a Marking,
+        forbidden_firings: &'a Option<HashMap<Uuid, Vec<Arc<Binding>>>>,
+    ) -> impl Iterator<Item = (Arc<Binding>, Option<HashMap<Uuid, Vec<Arc<Binding>>>>)> + 'a {
+        let mut transition_enabled: HashMap<Uuid, bool> = HashMap::new();
+
+        let mut firing_combinations_per_transition: HashMap<Uuid, Vec<Arc<Binding>>> =
+            HashMap::new();
+
+        let mut forbidden_firings_per_transition: HashMap<Uuid, Vec<Arc<Binding>>> = HashMap::new();
+
+        for transition in self.model.transitions.values() {
+            //println!("Transition: {}", transition.name);
+            let firing_combinations = marking.get_firing_combinations(transition);
+            if (firing_combinations.len() > 0) {
+                //println!("{}",transition.name);
+                //println!("Firing combinations: {:?}", firing_combinations.iter().map(|c| c.to_string()).collect::<Vec<String>>());
+            }
+
+            transition_enabled.insert(transition.id, firing_combinations.len() > 0);
+            let firing_combinations: Vec<Arc<Binding>> =
+                firing_combinations.into_iter().map(Arc::new).collect();
+
+            if (!transition.silent) {
+                forbidden_firings_per_transition
+                    .insert(transition.id, firing_combinations.iter().cloned().collect());
+            }
+
+            firing_combinations_per_transition.insert(transition.id, firing_combinations);
+        }
+
+        if let Some(forbidden_firings_previous) = forbidden_firings {
+            // if this is the case, merge forbidden_firings_per_transition with forbidden_firings_previous
+            for (transition_id, forbidden_firings_to_extend) in forbidden_firings_previous {
+                let forbidden_firings = forbidden_firings_per_transition
+                    .entry(*transition_id)
+                    .or_insert_with(|| vec![]);
+                forbidden_firings.extend(forbidden_firings_to_extend.iter().cloned());
+            }
+        }
+
+        self.model.transitions.values().flat_map(move |transition| {
+            let firing_combinations = firing_combinations_per_transition
+                .get(&transition.id)
+                .unwrap();
+            if firing_combinations.is_empty() {
+                // return empty iterator without allocating
+                return vec![];
+            }
+
+            // Filter combinations based on symmetry breaking
+            let filtered_combinations = firing_combinations;
+            // fixme fix this for arbitrary object sets, respecting the edge mapping
+            //self.filter_firing_combinations(&firing_combinations, transition, node);
+
+            if (filtered_combinations.is_empty()) {
+                panic!("No filtered combinations?!");
+            }
+
+            if (filtered_combinations.len() < firing_combinations.len()) {
+                //println!("Filtered out {} combinations", firing_combinations.len() - filtered_combinations.len());
+            }
+
+            // filter out forbidden firings, meaning filter out all bindings from filteredCombinations that are in OCPNStateNode.forbiddenFirings
+
+            let mut filtered_forbidden_combinations = match forbidden_firings {
+                Some(forbidden_firings_per_t) => {
+                    let forbidden_firings = forbidden_firings_per_t.get(&transition.id);
+                    if (forbidden_firings.is_none()) {
+                        filtered_combinations.clone()
+                    } else {
+                        let forbidden_firings = forbidden_firings.unwrap();
+                        filtered_combinations
+                            .iter()
+                            .filter_map(|combination| {
+                                if (forbidden_firings.contains(combination)) {
+                                    return None;
+                                }
+                                return Some(combination);
+                            })
+                            .cloned()
+                            .collect()
+                    }
+                }
+                None => filtered_combinations.clone(),
+            };
+            let filtered_out_len =
+                filtered_combinations.len() - filtered_forbidden_combinations.len();
+
+            if (filtered_out_len > 0) {
+                //println!("Filtered out {} forbidden combinations", filtered_out_len);
+            }
+
+            if (transition.silent) {
+                filtered_forbidden_combinations.sort_by(|a, b| compare_bindings(a, b));
+
+                return filtered_forbidden_combinations
+                    .iter()
+                    .enumerate()
+                    .map(|(index, combination)| {
+                        let forbidden_firings = {
+                            let mut base = forbidden_firings_per_transition.clone();
+                            // add all combinations from index 0 to index to forbidden firings
+                            // select them from filtered_forbidden_combinations
+                            // -> symmetry-breaking
+                            let forbidden_firings =
+                                filtered_forbidden_combinations[..index].to_vec();
+                            if (!forbidden_firings.is_empty()) {
+                                base.entry(transition.id)
+                                    .or_insert_with(|| vec![])
+                                    .extend(forbidden_firings);
+                            }
+                            // now, also forbid all combinations from all silent transitions with a higher lexicographical order
+                            // which are also firable in this node
+                            // first, sort all silent transitions lexicograhically by name
+
+                            let mut sorted_silent_transitions: Vec<&Transition> = self
+                                .model
+                                .transitions
+                                .values()
+                                .filter(|t| t.silent)
+                                .collect();
+                            sorted_silent_transitions.sort_by(|a, b| a.id.cmp(&b.id));
+
+                            // now, iterate over all silent transitions with a higher lexicographical order
+                            // and add all firable combinations to the forbidden firings
+                            for silent_transition in sorted_silent_transitions {
+                                if (silent_transition.id <= transition.id) {
+                                    continue;
+                                }
+                                let firable_combinations = firing_combinations_per_transition
+                                    .get(&silent_transition.id)
+                                    .unwrap();
+                                // todo consider filtering out forbidden firings
+                                base.entry(silent_transition.id)
+                                    .or_insert_with(|| vec![])
+                                    .extend(firable_combinations.iter().cloned());
+                            }
+                            Some(base)
+                        };
+                        (combination.clone(), forbidden_firings)
+                    })
+                    .collect();
+            }
+
+            filtered_forbidden_combinations
+                .iter()
+                .enumerate()
+                .map(|(index, combination)| return (combination.clone(), None))
+                .collect()
+        })
+    }
+
+    fn create_child_ev_nodes(
+        &self,
+        node: &&OCPNStateNode,
+        query_case_stats: &CaseStats,
+        mut transition_children: &mut Vec<OCPNStateNode>,
+        combination: &Arc<Binding>,
+        new_marking: &Marking,
+        transition: &Transition,
+    ) {
+        let mut new_marking = node.marking.clone();
+        let mut new_partial_case = node.partial_case.clone();
+        let mut new_partial_case_stats = node.partial_case_stats.clone();
+
+        let mut most_recent_event_id = node.most_recent_event_id.clone();
+
+        new_marking.fire_transition(transition, combination);
+
+        let new_action = if (!transition.silent) {
+            let new_action = Arc::new(SearchNodeAction::ev(
+                transition.event_type,
+                // flatten objectBinding_info into vec<object_type, object_id>
+                combination
+                    .object_binding_info
+                    .iter()
+                    .flat_map(|(object_type, binding_info)| {
+                        binding_info.tokens.iter().map(|token| {
+                            (
+                                object_type.clone(),
+                                self.token_graph_id_mapping.get(&token.id).unwrap().clone(),
+                            )
+                        })
+                    })
+                    .collect(),
+            ));
+
+            new_action
+                .apply_to_case_graph(&mut new_partial_case, Some(&mut new_partial_case_stats));
+            Some(new_action)
+        } else {
+            None
+        };
+
+        let new_cost = self.calculate_lb(&query_case_stats, &new_partial_case_stats, &new_marking);
+
+        // This is a sanity check and should not happen during normal operation.
+        if (new_cost < node.lb) {
+            println!("!!!!! COST DECREASED by {}", node.lb - new_cost);
+            for ((edge_type, a, b), &partial_count) in &node.partial_case_stats.edge_type_counts {
+                if edge_type.ne(&EdgeType::E2O) {
+                    continue;
+                }
+                let query_count = query_case_stats
+                    .edge_type_counts
+                    .get(&(*edge_type, *a, *b))
+                    .unwrap_or(&0);
+                let type_storage = TYPE_STORAGE.read().unwrap();
+                println!(
+                    "Edge: ({:?},{},{}) Difference: {}",
+                    edge_type,
+                    type_storage.get_type_name(*a).unwrap(),
+                    type_storage.get_type_name(*b).unwrap(),
+                    (partial_count as f64 - *query_count as f64)
+                );
+            }
+            println!("-----------------");
+            println!("After firing transition: {}", transition.name);
+            for ((edge_type, a, b), &partial_count) in &new_partial_case_stats.edge_type_counts {
+                if edge_type.ne(&EdgeType::E2O) {
+                    continue;
+                }
+                let query_count = query_case_stats
+                    .edge_type_counts
+                    .get(&(*edge_type, *a, *b))
+                    .unwrap_or(&0);
+                let type_storage = TYPE_STORAGE.read().unwrap();
+                println!(
+                    "Edge: ({:?},{},{}) Difference: {}",
+                    edge_type,
+                    type_storage.get_type_name(*a).unwrap(),
+                    type_storage.get_type_name(*b).unwrap(),
+                    (partial_count as f64 - *query_count as f64)
+                );
+            }
+            println!("-----------------");
+            query_case_stats.pretty_print_stats()
+        }
+
+        let mut new_action_path = node.action_path.clone();
+        new_action_path.push(
+            new_action
+                .unwrap_or_else(|| Arc::new(SearchNodeAction::ev(std::usize::MAX.into(), vec![]))),
+        );
+        transition_children.push(OCPNStateNode::new_with_stats(
+            new_marking,
+            new_partial_case,
+            new_cost,
+            most_recent_event_id,
+            new_action_path,
+            new_partial_case_stats,
+            node.depth + 1,
+            None
+        ));
+    }
 }
 
 impl ModelStateInterface for OCPTStateInterface {
@@ -475,7 +732,7 @@ impl ModelStateInterface for OCPTStateInterface {
                         new_action_path,
                         new_partial_case_stats,
                         node.depth + 1,
-                        None,
+                        None
                     ));
                 }
                 // If higher_types_used is true, do not add tokens to this and lower types
@@ -487,252 +744,119 @@ impl ModelStateInterface for OCPTStateInterface {
 
         //
         let mut transition_enabled: HashMap<Uuid, bool> = HashMap::new();
-
-        let mut firing_combinations_per_transition: HashMap<Uuid, Vec<Arc<Binding>>> =
-            HashMap::new();
-
-        let mut forbidden_firings_per_transition: HashMap<Uuid, Vec<Arc<Binding>>> = HashMap::new();
-
+        
+        
         let mut transition_children: Vec<OCPNStateNode> = Vec::new();
-        for transition in self.model.transitions.values() {
-            //println!("Transition: {}", transition.name);
-            let firing_combinations = node.marking.get_firing_combinations(transition);
-            if (firing_combinations.len() > 0) {
-                //println!("{}",transition.name);
-                //println!("Firing combinations: {:?}", firing_combinations.iter().map(|c| c.to_string()).collect::<Vec<String>>());
-            }
 
-            transition_enabled.insert(transition.id, firing_combinations.len() > 0);
-            let firing_combinations: Vec<Arc<Binding>> =
-                firing_combinations.into_iter().map(Arc::new).collect();
+        self.iterate_enabled_firings(&node.marking, &node.forbidden_firings)
+            .enumerate()
+            .for_each(|(index, (combination, forbidden_firings))| {
+                transition_enabled.insert(combination.transition_id, true);
+                let mut new_marking = node.marking.clone();
 
-            if (!transition.silent) {
-                forbidden_firings_per_transition
-                    .insert(transition.id, firing_combinations.iter().cloned().collect());
-            }
+                let transition = self
+                    .model
+                    .get_transition(&combination.transition_id)
+                    .unwrap();
+                new_marking.fire_transition(transition, &*combination);
+                //let mut new_partial_case_stats = node.partial_case.get_case_stats();
 
-            firing_combinations_per_transition.insert(transition.id, firing_combinations);
-        }
-
-        if let Some(forbidden_firings_previous) = &node.forbidden_firings {
-            // if this is the case, merge forbidden_firings_per_transition with forbidden_firings_previous
-            for (transition_id, forbidden_firings_to_extend) in forbidden_firings_previous {
-                let forbidden_firings = forbidden_firings_per_transition
-                    .entry(*transition_id)
-                    .or_insert_with(|| vec![]);
-                forbidden_firings.extend(forbidden_firings_to_extend.iter().cloned());
-            }
-        }
-
-        for transition in self.model.transitions.values() {
-            let firing_combinations = firing_combinations_per_transition
-                .get(&transition.id)
-                .unwrap();
-            if firing_combinations.is_empty() {
-                continue;
-            }
-
-            // Filter combinations based on symmetry breaking
-            let filtered_combinations =
-                self.filter_firing_combinations(&firing_combinations, transition, node);
-
-            if (filtered_combinations.is_empty()) {
-                panic!("No filtered combinations?!");
-            }
-
-            if (filtered_combinations.len() < firing_combinations.len()) {
-                //println!("Filtered out {} combinations", firing_combinations.len() - filtered_combinations.len());
-            }
-
-            // filter out forbidden firings, meaning filter out all bindings from filteredCombinations that are in searchNode.forbiddenFirings
-
-            let mut filtered_forbidden_combinations = match &node.forbidden_firings {
-                Some(forbidden_firings_per_t) => {
-                    let forbidden_firings = forbidden_firings_per_t.get(&transition.id);
-                    if (forbidden_firings.is_none()) {
-                        filtered_combinations.clone()
-                    } else {
-                        let forbidden_firings = forbidden_firings.unwrap();
-                        filtered_combinations
-                            .iter()
-                            .filter_map(|combination| {
-                                if (forbidden_firings.contains(combination)) {
-                                    return None;
-                                }
-                                return Some(combination);
-                            })
-                            .cloned()
-                            .collect()
-                    }
-                }
-                None => filtered_combinations.clone(),
-            };
-            let filtered_out_len =
-                filtered_combinations.len() - filtered_forbidden_combinations.len();
-            if (filtered_out_len > 0) {
-                //println!("Filtered out {} forbidden combinations", filtered_out_len);
-            }
-
-            if (transition.silent) {
-                filtered_forbidden_combinations.sort_by(|a, b| compare_bindings(a, b));
-            }
-
-            filtered_forbidden_combinations
-                .iter()
-                .enumerate()
-                .for_each(|(index, combination)| {
-                    let mut new_marking = node.marking.clone();
-                    let mut new_partial_case = node.partial_case.clone();
-                    let mut new_partial_case_stats = node.partial_case_stats.clone();
-
-                    let mut most_recent_event_id = node.most_recent_event_id.clone();
-
-                    new_marking.fire_transition(transition, combination);
-
-                    let new_action = if (!transition.silent) {
-                        let new_action = Arc::new(SearchNodeAction::ev(
-                            transition.event_type,
-                            // flatten objectBinding_info into vec<object_type, object_id>
-                            combination
-                                .object_binding_info
-                                .iter()
-                                .flat_map(|(object_type, binding_info)| {
-                                    binding_info.tokens.iter().map(|token| {
-                                        (
-                                            object_type.clone(),
-                                            self.token_graph_id_mapping
-                                                .get(&token.id)
-                                                .unwrap()
-                                                .clone(),
-                                        )
-                                    })
-                                })
-                                .collect(),
-                        ));
-
-                        new_action.apply_to_case_graph(
-                            &mut new_partial_case,
-                            Some(&mut new_partial_case_stats),
-                        );
-                        Some(new_action)
-                    } else {
-                        None
-                    };
-
-                    let new_cost = self.calculate_lb(
+                if (!transition.silent) {
+                    self.create_child_ev_nodes(
+                        &node,
                         &query_case_stats,
-                        &new_partial_case_stats,
+                        &mut transition_children,
+                        &combination,
                         &new_marking,
+                        transition,
                     );
-
-                    // This is a sanity check and should not happen during normal operation.
-                    if (new_cost < node.lb) {
-                        println!("!!!!! COST DECREASED by {}", node.lb - new_cost);
-                        for ((edge_type, a, b), &partial_count) in
-                            &node.partial_case_stats.edge_type_counts
-                        {
-                            if edge_type.ne(&EdgeType::E2O) {
-                                continue;
-                            }
-                            let query_count = query_case_stats
-                                .edge_type_counts
-                                .get(&(*edge_type, *a, *b))
-                                .unwrap_or(&0);
-                            let type_storage = TYPE_STORAGE.read().unwrap();
-                            println!(
-                                "Edge: ({:?},{},{}) Difference: {}",
-                                edge_type,
-                                type_storage.get_type_name(*a).unwrap(),
-                                type_storage.get_type_name(*b).unwrap(),
-                                (partial_count as f64 - *query_count as f64)
-                            );
-                        }
-                        println!("-----------------");
-                        println!("After firing transition: {}", transition.name);
-                        for ((edge_type, a, b), &partial_count) in
-                            &new_partial_case_stats.edge_type_counts
-                        {
-                            if edge_type.ne(&EdgeType::E2O) {
-                                continue;
-                            }
-                            let query_count = query_case_stats
-                                .edge_type_counts
-                                .get(&(*edge_type, *a, *b))
-                                .unwrap_or(&0);
-                            let type_storage = TYPE_STORAGE.read().unwrap();
-                            println!(
-                                "Edge: ({:?},{},{}) Difference: {}",
-                                edge_type,
-                                type_storage.get_type_name(*a).unwrap(),
-                                type_storage.get_type_name(*b).unwrap(),
-                                (partial_count as f64 - *query_count as f64)
-                            );
-                        }
-                        println!("-----------------");
-                        query_case_stats.pretty_print_stats()
-                    }
-
-                    let forbidden_firings = if (transition.silent) {
-                        let mut base = forbidden_firings_per_transition.clone();
-                        // add all combinations from index 0 to index to forbidden firings
-                        // select them from filtered_forbidden_combinations
-                        // -> symmetry-breaking
-                        let forbidden_firings = filtered_forbidden_combinations[..index].to_vec();
-                        if (!forbidden_firings.is_empty()) {
-                            base.entry(transition.id)
-                                .or_insert_with(|| vec![])
-                                .extend(forbidden_firings);
-                        }
-                        // now, also forbid all combinations from all silent transitions with a higher lexicographical order
-                        // which are also firable in this node
-                        // first, sort all silent transitions lexicograhically by name
-
-                        let mut sorted_silent_transitions: Vec<&Transition> = self
-                            .model
-                            .transitions
-                            .values()
-                            .filter(|t| t.silent)
-                            .collect();
-                        sorted_silent_transitions.sort_by(|a, b| a.id.cmp(&b.id));
-
-                        // now, iterate over all silent transitions with a higher lexicographical order
-                        // and add all firable combinations to the forbidden firings
-                        for silent_transition in sorted_silent_transitions {
-                            if (silent_transition.id <= transition.id) {
-                                continue;
-                            }
-                            let firable_combinations = firing_combinations_per_transition
-                                .get(&silent_transition.id)
-                                .unwrap();
-                            // todo consider filtering out forbidden firings
-                            base.entry(silent_transition.id)
-                                .or_insert_with(|| vec![])
-                                .extend(firable_combinations.iter().cloned());
-                        }
-
-                        Some(base)
-                    } else {
-                        None
-                    };
-
-                    let mut new_action_path = node.action_path.clone();
-                    new_action_path.push(new_action.unwrap_or_else(|| {
-                        Arc::new(SearchNodeAction::ev(std::usize::MAX.into(), vec![]))
-                    }));
-                    transition_children.push(OCPNStateNode::new_with_stats(
+                } else {
+                    let mut stack = Vec::new();
+                    stack.push((
+                        node.marking.is_final_has_tokens(),
                         new_marking,
-                        new_partial_case,
-                        new_cost,
-                        most_recent_event_id,
-                        new_action_path,
-                        new_partial_case_stats,
-                        node.depth + 1,
+                        combination,
                         forbidden_firings,
                     ));
-                });
-        }
-        //println!("done getting transitions");
-        // places are allowed to be dead as long as we keep adding tokens to alive them ;)
+
+                    while (!stack.is_empty()) {
+                        let (prev_final, marking, combination, forbidden_firings) =
+                            stack.pop().unwrap();
+                        let current_final = marking.is_final_has_tokens();
+                        self.iterate_enabled_firings(&marking, &forbidden_firings)
+                            .for_each(|(combination, forbidden_firings)| {
+                                let mut next_marking = marking.clone();
+
+                                next_marking.fire_transition(
+                                    self.model
+                                        .get_transition(&combination.transition_id)
+                                        .unwrap(),
+                                    &*combination,
+                                );
+
+                                let transition = self
+                                    .model
+                                    .get_transition(&combination.transition_id)
+                                    .unwrap();
+
+                                if (transition.silent) {
+                                    stack.push((
+                                        current_final,
+                                        next_marking,
+                                        combination,
+                                        forbidden_firings,
+                                    ));
+                                } else {
+                                    self.create_child_ev_nodes(
+                                        &node,
+                                        &query_case_stats,
+                                        &mut transition_children,
+                                        &combination,
+                                        &next_marking,
+                                        transition,
+                                    );
+                                }
+                            });
+                        
+                        // The case graph is the same as before, 
+                        // but using a silent transition we reached a final marking
+                        if (!prev_final && current_final) {
+                            // in this case all further firings are forbidden to prevent symmetries
+                            let firing_combinations = self
+                                .model
+                                .transitions
+                                .values()
+                                .map(|transition| {
+                                    (
+                                        transition.id,
+                                        marking
+                                            .get_firing_combinations(transition)
+                                            .iter()
+                                            .map(|binding| Arc::new(binding.clone()))
+                                            .collect::<Vec<Arc<Binding>>>(),
+                                    )
+                                })
+                                .collect::<HashMap<Uuid, Vec<Arc<Binding>>>>();
+
+                            let silent_node = OCPNStateNode::new_with_stats(
+                                marking,
+                                node.partial_case.clone(),
+                                node.lb,
+                                node.most_recent_event_id,
+                                node.action_path.clone(),
+                                node.partial_case_stats.clone(),
+                                node.depth + 1,
+                                Some(firing_combinations)
+                            );
+                            transition_children.push(silent_node)
+                        }
+                    }
+                }
+            });
+
+        
+        // places are allowed to be dead as long as we keep adding tokens to alive them
+        // this is the replay termination heuristic
         if (!node.action_path.last().unwrap().is_pre_firing()) {
             if !node
                 .marking
