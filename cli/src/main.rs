@@ -439,7 +439,7 @@ fn run_worker(
     if let Some(result_node) = result {
         println!("Solution found for case {:?}", file_stem);
         // Align and calculate cost
-        let alignment = CaseAssignment::align_mip(&case_graph, &result_node.partial_case);
+        let alignment = CaseAssignment::compute_assignment_mip(&case_graph, &result_node.partial_case);
         let cost = alignment.total_cost().unwrap_or(f64::INFINITY);
         // Save aligned image
         let aligned_image_path =

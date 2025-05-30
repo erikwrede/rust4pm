@@ -149,7 +149,7 @@ impl<N: 'static + StateNode> ModelCaseChecker<N> {
 
         if let Some(shortest_case) = &self.shortest_case {
             println!("Calculating initial upper bound");
-            let alignment = CaseAssignment::align_mip(query_case, shortest_case);
+            let alignment = CaseAssignment::compute_assignment_mip(query_case, shortest_case);
             global_upper_bound = alignment.total_cost().unwrap_or(f64::INFINITY);
             println!("Initial upper bound: {}", global_upper_bound);
             
@@ -202,7 +202,7 @@ impl<N: 'static + StateNode> ModelCaseChecker<N> {
                 // save an intermediate result as an image in ./intermediates
                 let intermediate_graph = current_node.partial_case().clone();
                 let intermediate_alignment =
-                    CaseAssignment::align_mip(query_case, &intermediate_graph);
+                    CaseAssignment::compute_assignment_mip(query_case, &intermediate_graph);
                 println!(
                     "Intermediate alignment cost: {}",
                     intermediate_alignment.total_cost().unwrap_or(f64::INFINITY)
@@ -233,7 +233,7 @@ impl<N: 'static + StateNode> ModelCaseChecker<N> {
                     println!("First final marking reached")
                 }
                 
-                let alignment = CaseAssignment::align_mip(query_case, &current_node.partial_case());
+                let alignment = CaseAssignment::compute_assignment_mip(query_case, &current_node.partial_case());
                 //println!("Alignment cost: {}", alignment.total_cost().unwrap_or(f64::INFINITY));
                 /*
                 if ((alignment.void_nodes.len() + alignment.void_edges.len()
@@ -318,7 +318,7 @@ mod tests {
     use graphviz_rust::cmd::Format;
     use std::path::Path;
     use std::{fs, panic};
-    use crate::oc_state_space::r#impl::ocpn::OCPNStateNode;
+    use crate::oc_state_space::r#impl::ocpn::{OCPNStateInterface, OCPNStateNode};
     use crate::oc_state_space::r#impl::ocpt::OCPTStateInterface;
 
     #[test]
@@ -442,7 +442,7 @@ mod tests {
             .expect("Unable to read file");
             let shortest_case = deserialize_case_graph(shortest_case_json.as_str());
             
-            let interface = OCPTStateInterface::new(petri_net_arc.clone());
+            let interface = OCPNStateInterface::new(petri_net_arc.clone());
             
             // Initialize ModelCaseChecker
             let mut checker =
@@ -471,7 +471,7 @@ mod tests {
                     println!("Solution found for case {:?}", path);
                     // save the alignment result as an image in a directory next to /Users/erikwrede/dev/uni/ma-py/ocgc-py/ocgc/varsbpi
                     let alignment =
-                        CaseAssignment::align_mip(&case_graph, &result_node.partial_case);
+                        CaseAssignment::compute_assignment_mip(&case_graph, &result_node.partial_case);
                     let cost = alignment.total_cost().unwrap_or(f64::INFINITY);
                     println!("Cost: {}", cost);
                     visualize_assignment(

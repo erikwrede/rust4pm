@@ -279,7 +279,7 @@ mod tests {
         A.add_edge(edge5.clone());
 
         // Perform alignment
-        let alignment = CaseAssignment::align_mip(&A, &B);
+        let alignment = CaseAssignment::compute_assignment_mip(&A, &B);
         println!("alignment cost: {:?}", alignment.total_cost().unwrap());
 
         // Export visualization

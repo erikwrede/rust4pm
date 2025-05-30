@@ -6,24 +6,24 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 trait Mappable {
-    fn is_void(&self) -> bool;
+    fn is_delta(&self) -> bool;
     fn cost(&self) -> f64;
 }
 
 #[derive(Debug, Clone)]
 pub enum NodeMapping {
     RealNode(usize, usize),     // (c1_node, c2_node)
-    InsertedNode(usize, usize), // (c1_node, void_node_id)
+    InsertedNode(usize, usize), // (c1_node, delta_node_id)
 }
 
 #[derive(Debug, Clone)]
 pub enum EdgeMapping {
     RealEdge(usize, usize),     // (c1_edge, c2_edge)
-    InsertedEdge(usize, usize), // (c1_edge, void_edge_id)
+    InsertedEdge(usize, usize), // (c1_edge, delta_edge_id)
 }
 
 impl Mappable for NodeMapping {
-    fn is_void(&self) -> bool {
+    fn is_delta(&self) -> bool {
         matches!(self, NodeMapping::InsertedNode(_, _))
     }
     fn cost(&self) -> f64 {
@@ -35,7 +35,7 @@ impl Mappable for NodeMapping {
 }
 
 impl Mappable for EdgeMapping {
-    fn is_void(&self) -> bool {
+    fn is_delta(&self) -> bool {
         matches!(self, EdgeMapping::InsertedEdge(_, _))
     }
     fn cost(&self) -> f64 {
@@ -57,11 +57,13 @@ pub struct CaseAssignment<'a> {
 }
 
 impl<'a> CaseAssignment<'a> {
-    pub fn align_mip(c1: &'a CaseGraph, c2: &'a CaseGraph) -> Self {
+    /// Computes the case assignment using a Mixed Integer Program (MIP).
+    /// TODO: Upgrade to new RUSSCIP API
+    pub fn compute_assignment_mip(c1: &'a CaseGraph, c2: &'a CaseGraph) -> Self {
         let mut model = Model::new()
             .hide_output()
             .include_default_plugins()
-            .create_prob("CaseAlignment")
+            .create_prob("CaseAssignment")
             .set_obj_sense(ObjSense::Minimize);
 
         // Variables
@@ -78,12 +80,12 @@ impl<'a> CaseAssignment<'a> {
                     x_vars.insert((*n1, *n2), var);
                 }
             }
-            // Option to map to a void node
-            let var = model.add_var(0., 1., 1., &format!("x_void_{}", n1), VarType::Binary);
-            x_vars.insert((*n1, 0), var); // Using 0 to denote void
+            // Option to map to a delta node
+            let var = model.add_var(0., 1., 1., &format!("x_delta_{}", n1), VarType::Binary);
+            x_vars.insert((*n1, 0), var); // Using 0 to denote delta
         }
 
-        // Each node in c1 must be mapped to exactly one node in c2 or to a void node
+        // Each node in c1 must be mapped to exactly one node in c2 or to a delta node
         for n1 in c1.nodes.keys() {
             let mut vars = Vec::new();
             let mut coeffs = Vec::new();
@@ -125,12 +127,12 @@ impl<'a> CaseAssignment<'a> {
                     y_vars.insert((*e1, *e2), var);
                 }
             }
-            // Option to map to a void edge
-            let var = model.add_var(0., 1., 1., &format!("y_void_{}", e1), VarType::Binary);
-            y_vars.insert((*e1, 0), var); // Using 0 to denote void
+            // Option to map to a delta edge
+            let var = model.add_var(0., 1., 1., &format!("y_delta_{}", e1), VarType::Binary);
+            y_vars.insert((*e1, 0), var); // Using 0 to denote delta
         }
 
-        // Each edge in c1 must be mapped to exactly one edge in c2 or to a void edge
+        // Each edge in c1 must be mapped to exactly one edge in c2 or to a delta edge
         for e1 in c1.edges.keys() {
             let mut vars = Vec::new();
             let mut coeffs = Vec::new();
@@ -212,11 +214,11 @@ impl<'a> CaseAssignment<'a> {
             }
         }
 
-        // Objective: minimize number of void nodes and void edges plus unused nodes and edges in c2
+        // Objective: minimize number of delta nodes and delta edges plus epsilon nodes and edges in c2
         let mut obj_vars = Vec::new();
         let mut obj_coeffs = Vec::new();
 
-        // Void nodes
+        // delta nodes
         for n1 in c1.nodes.keys() {
             if let Some(v) = x_vars.get(&(*n1, 0)) {
                 obj_vars.push(v.clone());
@@ -224,7 +226,7 @@ impl<'a> CaseAssignment<'a> {
             }
         }
 
-        // Void edges
+        // delta edges
         for e1 in c1.edges.keys() {
             if let Some(v) = y_vars.get(&(*e1, 0)) {
                 obj_vars.push(v.clone());
@@ -232,10 +234,10 @@ impl<'a> CaseAssignment<'a> {
             }
         }
 
-        // Unused nodes in c2
+        // epsilon nodes in c2
         for n2 in c2.nodes.keys() {
-            let var = model.add_var(0., 1., 1., &format!("unused_node_{}", n2), VarType::Binary);
-            // If unused_node is 1, then no x_{i,j} can be 1 for this n2
+            let var = model.add_var(0., 1., 1., &format!("epsilon_node_{}", n2), VarType::Binary);
+            // If epsilon_node is 1, then no x_{i,j} can be 1 for this n2
             for n1 in c1.nodes.keys() {
                 if let Some(x_var) = x_vars.get(&(*n1, *n2)) {
                     model.add_cons(
@@ -243,7 +245,7 @@ impl<'a> CaseAssignment<'a> {
                         &[1.0, 1.0],
                         -f64::INFINITY,
                         1.0,
-                        &format!("unused_node_def_{}", n2),
+                        &format!("epsilon_node_def_{}", n2),
                     );
                 }
             }
@@ -265,14 +267,14 @@ impl<'a> CaseAssignment<'a> {
                 &sum_coeffs,
                 1.0, // Lower bound
                 1.0, // Upper bound
-                &format!("unused_node_eq_{}", n2),
+                &format!("epsilon_node_eq_{}", n2),
             );
         }
 
-        // Unused edges in c2
+        // epsilon edges in c2
         for e2 in c2.edges.keys() {
-            let var = model.add_var(0., 1., 1., &format!("unused_edge_{}", e2), VarType::Binary);
-            // If unused_edge is 1, then no y_{i,j} can be 1 for this e2
+            let var = model.add_var(0., 1., 1., &format!("epsilon_edge_{}", e2), VarType::Binary);
+            // If epsilon_edge is 1, then no y_{i,j} can be 1 for this e2
             for e1 in c1.edges.keys() {
                 if let Some(y_var) = y_vars.get(&(*e1, *e2)) {
                     model.add_cons(
@@ -280,7 +282,7 @@ impl<'a> CaseAssignment<'a> {
                         &[1.0, 1.0],
                         -f64::INFINITY,
                         1.0,
-                        &format!("unused_edge_def_{}", e2),
+                        &format!("epsilon_edge_def_{}", e2),
                     );
                 }
             }
@@ -302,7 +304,7 @@ impl<'a> CaseAssignment<'a> {
                 &sum_coeffs,
                 1.0, // Lower bound
                 1.0, // Upper bound
-                &format!("unused_edge_eq_{}", e2),
+                &format!("epsilon_edge_eq_{}", e2),
             );
         }
 
@@ -328,10 +330,10 @@ impl<'a> CaseAssignment<'a> {
         for (&(n1, n2), var) in &x_vars {
             if sol.val(var.clone()) > 0.5 {
                 if n2 == 0 {
-                    // Mapped to void
+                    // Mapped to delta
                     node_mapping.insert(
                         n1,
-                        NodeMapping::InsertedNode(n1, n1), // Using n1 as void id
+                        NodeMapping::InsertedNode(n1, n1), // Using n1 as delta id
                     );
                 } else {
                     node_mapping.insert(n1, NodeMapping::RealNode(n1, n2));
@@ -344,10 +346,10 @@ impl<'a> CaseAssignment<'a> {
         for (&(e1, e2), var) in &y_vars {
             if sol.val(var.clone()) > 0.5 {
                 if e2 == 0 {
-                    // Mapped to void
+                    // Mapped to delta
                     edge_mapping.insert(
                         e1,
-                        EdgeMapping::InsertedEdge(e1, e1), // Using e1 as void id
+                        EdgeMapping::InsertedEdge(e1, e1), // Using e1 as delta id
                     );
                 } else {
                     edge_mapping.insert(e1, EdgeMapping::RealEdge(e1, e2));
@@ -355,28 +357,28 @@ impl<'a> CaseAssignment<'a> {
             }
         }
 
-        // Collect void nodes and edges
-        let mut void_nodes = HashMap::new();
+        // Collect delta nodes and edges
+        let mut delta_nodes = HashMap::new();
         for (&n1, mapping) in &node_mapping {
-            if mapping.is_void() {
+            if mapping.is_delta() {
                 let node = c1.nodes.get(&n1).unwrap().clone();
-                void_nodes.insert(n1, node);
+                delta_nodes.insert(n1, node);
             }
         }
 
-        let mut void_edges = HashMap::new();
+        let mut delta_edges = HashMap::new();
         for (&e1, mapping) in &edge_mapping {
-            if mapping.is_void() {
+            if mapping.is_delta() {
                 let edge = c1.edges.get(&e1).unwrap().clone();
-                void_edges.insert(e1, edge);
+                delta_edges.insert(e1, edge);
             }
         }
 
         CaseAssignment {
             c1,
             c2,
-            inserted_nodes: void_nodes,
-            inserted_edges: void_edges,
+            inserted_nodes: delta_nodes,
+            inserted_edges: delta_edges,
             node_mapping,
             edge_mapping,
         }
@@ -465,16 +467,16 @@ impl<'a> CaseAssignment<'a> {
             }
         }
 
-        // print amount of void edges
-        println!("Void edges: {}", self.inserted_edges.len());
-        // print amount of void nodes
-        println!("Void nodes: {}", self.inserted_nodes.len());
+        // print amount of delta edges
+        println!("delta edges: {}", self.inserted_edges.len());
+        // print amount of delta nodes
+        println!("delta nodes: {}", self.inserted_nodes.len());
     }
 
     /// Prints the mappings of the alignment in a readable format.
     ///
     /// This includes:
-    /// - How each node and edge in c1 is mapped to c2 or to a void.
+    /// - How each node and edge in c1 is mapped to c2 or to a delta.
     /// - Any nodes and edges in c2 that are not mapped.
     /// - Any nodes and edges in c1 that are not mapped (if alignment is invalid).
     fn print_mappings(&self) {
@@ -488,10 +490,10 @@ impl<'a> CaseAssignment<'a> {
                     println!("  c1 Node {} -> c2 Node {}", c1_node_id, c2_node_id);
                     mapped_c2_nodes.insert(*c2_node_id);
                 }
-                NodeMapping::InsertedNode(_, void_node_id) => {
+                NodeMapping::InsertedNode(_, delta_node_id) => {
                     println!(
-                        "  c1 Node {} -> VOID Node (Void ID: {})",
-                        c1_node_id, void_node_id
+                        "  c1 Node {} -> delta Node (delta ID: {})",
+                        c1_node_id, delta_node_id
                     );
                 }
             }
@@ -539,10 +541,10 @@ impl<'a> CaseAssignment<'a> {
                     println!("  c1 Edge {} -> c2 Edge {}", c1_edge_id, c2_edge_id);
                     mapped_c2_edges.insert(*c2_edge_id);
                 }
-                EdgeMapping::InsertedEdge(_, void_edge_id) => {
+                EdgeMapping::InsertedEdge(_, delta_edge_id) => {
                     println!(
-                        "  c1 Edge {} -> VOID Edge (Void ID: {})",
-                        c1_edge_id, void_edge_id
+                        "  c1 Edge {} -> delta Edge (delta ID: {})",
+                        c1_edge_id, delta_edge_id
                     );
                 }
             }
@@ -580,18 +582,18 @@ impl<'a> CaseAssignment<'a> {
             }
         }
 
-        // Optionally, print void nodes and edges details
+        // Optionally, print delta nodes and edges details
         if !self.inserted_nodes.is_empty() {
-            println!("\n--- Void Nodes in Alignment ---");
-            for (void_id, node) in &self.inserted_nodes {
-                println!("  Void Node ID {}: {:?}", void_id, node);
+            println!("\n--- delta Nodes in Alignment ---");
+            for (delta_id, node) in &self.inserted_nodes {
+                println!("  delta Node ID {}: {:?}", delta_id, node);
             }
         }
 
         if !self.inserted_edges.is_empty() {
-            println!("\n--- Void Edges in Alignment ---");
-            for (void_id, edge) in &self.inserted_edges {
-                println!("  Void Edge ID {}: {:?}", void_id, edge);
+            println!("\n--- delta Edges in Alignment ---");
+            for (delta_id, edge) in &self.inserted_edges {
+                println!("  delta Edge ID {}: {:?}", delta_id, edge);
             }
         }
     }
@@ -664,7 +666,7 @@ mod tests {
         c2.add_edge(Edge::new(103, 5, 7, EdgeType::E2O));
 
         // Align using MIP
-        let alignment = CaseAssignment::align_mip(&c1, &c2);
+        let alignment = CaseAssignment::compute_assignment_mip(&c1, &c2);
         // Print the alignment
         println!("Node Mappings:");
         for (&n1, mapping) in &alignment.node_mapping {
@@ -673,7 +675,7 @@ mod tests {
                     println!("c1 Node {} -> c2 Node {}", n1, n2);
                 }
                 NodeMapping::InsertedNode(_, _) => {
-                    println!("c1 Node {} -> Void", n1);
+                    println!("c1 Node {} -> delta", n1);
                 }
             }
         }
@@ -685,7 +687,7 @@ mod tests {
                     println!("c1 Edge {} -> c2 Edge {}", e1, e2);
                 }
                 EdgeMapping::InsertedEdge(_, _) => {
-                    println!("c1 Edge {} -> Void", e1);
+                    println!("c1 Edge {} -> delta", e1);
                 }
             }
         }
